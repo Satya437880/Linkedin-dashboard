@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const has = (k: string) => Boolean(process.env[k]);
   const env = {
-    DATABASE_URL: has("DATABASE_URL"),
+    DATABASE_URL: has("DATABASE_URL") || has("POSTGRES_URL"),
     APP_PASSWORD: has("APP_PASSWORD"),
     SESSION_SECRET: (process.env.SESSION_SECRET ?? "").length >= 16,
     INGEST_TOKEN: has("INGEST_TOKEN"),
@@ -17,6 +17,9 @@ export async function GET() {
   };
   let db: { ok: boolean; tables?: number; error?: string } = { ok: false, error: "DATABASE_URL is not set" };
   if (env.DATABASE_URL) {
+    const raw = process.env.DATABASE_URL || process.env.POSTGRES_URL || "";
+    (env as Record<string, unknown>).DATABASE_URL_looks_valid = /^postgres(ql)?:\/\/[^:]+:[^@\[\]]+@[^/]+:\d+\/\w+/.test(raw.trim());
+    (env as Record<string, unknown>).DATABASE_URL_port = raw.match(/:(\d{4})\//)?.[1] ?? null;
     try {
       const r = await getDb().execute(sql`select count(*)::int as n from information_schema.tables where table_schema = 'public'`);
       const rows = (Array.isArray(r) ? r : (r as unknown as { rows: { n: number }[] }).rows) as { n: number }[];

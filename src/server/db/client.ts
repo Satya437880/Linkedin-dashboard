@@ -17,8 +17,10 @@ const g = globalThis as unknown as { __dbBundle?: DbBundle };
  */
 export function getBundle(): DbBundle {
   if (!g.__dbBundle) {
-    const url = process.env.DATABASE_URL;
+    // The Supabase/Vercel integration names it POSTGRES_URL; accept either, and ignore stray quotes or spaces.
+    const url = (process.env.DATABASE_URL || process.env.POSTGRES_URL || "").trim().replace(/^["']|["']$/g, "");
     if (!url) throw new Error("DATABASE_URL is not set");
+    if (/[\[\]]/.test(url.split("@")[0] ?? "")) throw new Error("DATABASE_URL still contains the [YOUR-PASSWORD] placeholder");
     const client = postgres(url, { prepare: false, max: 4, idle_timeout: 20, connect_timeout: 15 });
     g.__dbBundle = { db: drizzle(client, { schema }) as unknown as Db };
   }
