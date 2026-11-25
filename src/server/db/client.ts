@@ -11,12 +11,15 @@ export const SEED_TAGS = ["Aerospace", "Automotive", "Medical", "Procurement", "
 
 const g = globalThis as unknown as { __dbBundle?: DbBundle };
 
-/** One small connection per serverless instance. `prepare: false` is required by Supabase's transaction pooler. */
+/**
+ * `prepare: false` is required by Supabase's transaction pooler. Keep `max` at 4: with a single connection the pooler
+ * stalls when pages run two queries at once, and big bursts of simultaneous queries stall it too.
+ */
 export function getBundle(): DbBundle {
   if (!g.__dbBundle) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error("DATABASE_URL is not set");
-    const client = postgres(url, { prepare: false, max: 1, idle_timeout: 20, connect_timeout: 15 });
+    const client = postgres(url, { prepare: false, max: 4, idle_timeout: 20, connect_timeout: 15 });
     g.__dbBundle = { db: drizzle(client, { schema }) as unknown as Db };
   }
   return g.__dbBundle;

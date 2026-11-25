@@ -9,9 +9,9 @@
     "test": "vitest run",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
-    "seed": "tsx scripts/seed.ts",
+    "seed": "tsx scripts/seed.mts",
     "db:migrate": "drizzle-kit migrate",
-    "db:copy-sqlite": "tsx scripts/migrate-from-sqlite.ts"
+    "db:copy-sqlite": "tsx scripts/migrate-from-sqlite.mts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.6.0",

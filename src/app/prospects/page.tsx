@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, desc, eq, isNull, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { Shell } from "@/components/Shell";
 import { IconExternal, IconSearch } from "@/components/Icons";
 import { FlowPill, SentimentPill, StatusPill, statusOf, workflowStatus } from "@/components/Pills";
@@ -43,16 +43,20 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
   const rows = filtered.slice(start, start + PAGE);
 
   // Latest message each way, per row.
-  const extra = new Map(
-    await Promise.all(
-      rows.map(async ({ p: r }) => {
-        const latest = async (direction: "inbound" | "outbound") =>
-          (await db.select({ text: messages.text }).from(messages).where(and(eq(messages.prospectId, r.id), eq(messages.direction, direction), isNull(messages.duplicateOf))).orderBy(desc(messages.sentAt)).limit(1))[0];
-        const [reply, ours] = await Promise.all([latest("inbound"), latest("outbound")]);
-        return [r.id, { reply: reply?.text ?? null, ours: ours?.text ?? null }] as const;
-      }),
-    ),
-  );
+  const ids = rows.map(({ p: r }) => r.id);
+  const latest = new Map<string, string>();
+  if (ids.length) {
+    const recent = await db
+      .select({ prospectId: messages.prospectId, direction: messages.direction, text: messages.text })
+      .from(messages)
+      .where(and(inArray(messages.prospectId, ids), isNull(messages.duplicateOf)))
+      .orderBy(desc(messages.sentAt));
+    for (const m of recent) {
+      const k = `${m.prospectId}:${m.direction}`;
+      if (!latest.has(k)) latest.set(k, m.text);
+    }
+  }
+  const extra = new Map(ids.map((id) => [id, { reply: latest.get(`${id}:inbound`) ?? null, ours: latest.get(`${id}:outbound`) ?? null }] as const));
 
   const href = (s: string, pg = 1) =>
     `/prospects?${new URLSearchParams({ ...(q ? { q } : {}), ...(s !== "all" ? { status: s } : {}), ...(pg > 1 ? { page: String(pg) } : {}) })}`;

@@ -1,6 +1,6 @@
 /*
  * One-time copy of the old local SQLite database into Supabase Postgres.
- *   DATABASE_URL=... npx tsx scripts/migrate-from-sqlite.ts [path/to/dashboard.db]
+ *   DATABASE_URL=... npx tsx scripts/migrate-from-sqlite.mts [path/to/dashboard.db]
  * Run `npm run db:migrate` first. Refuses to run if the target already has prospects.
  */
 import { DatabaseSync } from "node:sqlite";

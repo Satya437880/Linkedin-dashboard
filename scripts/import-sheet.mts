@@ -1,7 +1,7 @@
 /* Imports the "responses" sheet: one prospect per row, their response as an inbound message, and the
  * category you set by hand. Idempotent (ids are sheet-<Sl no>). Run with --dry to try it on a throwaway DB.
- *   npx tsx scripts/import-sheet.ts --dry
- *   npx tsx scripts/import-sheet.ts
+ *   npx tsx scripts/import-sheet.mts --dry
+ *   npx tsx scripts/import-sheet.mts
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { draftReplyForProspect, nextActionForProspect, summarizeProspect } from "../src/server/ai/analyze";

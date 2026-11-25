@@ -1,6 +1,6 @@
 /* Repairs messages the extension saved on the wrong side. Dry run by default; pass --apply to change data.
- *   npx tsx scripts/fix-sides.ts            (shows what would change)
- *   npx tsx scripts/fix-sides.ts --apply    (changes it, through the same correction path the extension uses)
+ *   npx tsx scripts/fix-sides.mts            (shows what would change)
+ *   npx tsx scripts/fix-sides.mts --apply    (changes it, through the same correction path the extension uses)
  */
 import { and, eq, like } from "drizzle-orm";
 import { getBundle } from "../src/server/db/client";
