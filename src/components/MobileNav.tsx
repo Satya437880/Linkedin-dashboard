@@ -2,11 +2,11 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { IconClose, IconMenu, IconSignOut } from "./Icons";
+import { IconClose, IconMenu } from "./Icons";
 import { NavLinks } from "./NavLinks";
 
 /** Top bar for screens below 1024px: logo on the left, menu button on the right. */
-export function MobileNav({ csrf }: { csrf: string }) {
+export function MobileNav() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -34,10 +34,6 @@ export function MobileNav({ csrf }: { csrf: string }) {
       {open && (
         <div id="mobile-menu" className="absolute inset-x-0 top-16 border-b border-line bg-white px-4 pb-4 pt-2 shadow-lg">
           <NavLinks onNavigate={() => setOpen(false)} />
-          <form action="/api/logout" method="post" className="mt-2 border-t border-line pt-2">
-            <input type="hidden" name="csrf" value={csrf} />
-            <button className="nav-link w-full"><IconSignOut />Sign out</button>
-          </form>
         </div>
       )}
     </div>

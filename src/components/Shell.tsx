@@ -2,7 +2,6 @@
 import Link from "next/link";
 import { getBundle } from "@/server/db/client";
 import { lastCaptureAt } from "@/server/ingest/ingestEvent";
-import { requireSession } from "@/server/auth/auth";
 import { AlertBar } from "./AlertBar";
 import { AutoRefresh } from "./AutoRefresh";
 import { IconAlert } from "./Icons";
@@ -10,7 +9,6 @@ import { MobileNav } from "./MobileNav";
 import { NavLinks } from "./NavLinks";
 
 export async function Shell({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
-  const session = await requireSession();
   const last = await lastCaptureAt(getBundle());
   const stale = last ? Date.now() - last.getTime() > 2 * 86_400_000 : false;
   const fmt = (d: Date) =>
@@ -28,7 +26,7 @@ export async function Shell({ children, wide = false }: { children: React.ReactN
       </aside>
 
       <div className="min-w-0">
-        <MobileNav csrf={session.csrf} />
+        <MobileNav />
         <header className="flex min-h-14 items-center justify-end gap-3 border-b border-line bg-white px-4 py-2 text-sm text-slate-brand md:px-6 lg:px-8">
           <span className="rounded-full bg-cream px-3 py-1 font-medium">
             Last capture: <span className="text-ink">{last ? fmt(last) : "none yet"}</span>

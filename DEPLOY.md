@@ -17,8 +17,6 @@ these Environment Variables (Production):
 | Name | Value |
 |---|---|
 | `DATABASE_URL` | the transaction pooler string |
-| `APP_PASSWORD` | a long random password |
-| `SESSION_SECRET` | 32+ random characters |
 | `INGEST_TOKEN` | long random string; also set it in the browser extension |
 | `CRON_SECRET` | long random string (Vercel sends it to `/api/cron/jobs`) |
 | `OWNER_NAME`, `APP_TIMEZONE` | optional |
@@ -31,6 +29,6 @@ Change its server URL from `http://127.0.0.1:3000` to your Vercel URL and keep t
 ## What changed from the local version
 - SQLite file -> Supabase Postgres (async queries, Postgres triggers keep the append-only audit log).
 - The in-process job timer is gone. Jobs run right after each ingest, and daily via Vercel Cron.
-- The app is gated by `src/proxy.ts`, login is rate-limited (5 wrong tries = 15 min lock), cookies are `Secure`,
-  and search engines are told not to index it.
+- **There is no sign-in.** Anyone with the link can open and edit the dashboard. Only the extension's ingest
+  endpoint (`INGEST_TOKEN`) and the cron endpoint (`CRON_SECRET`) are protected. Search engines are told not to index it.
 - Ollama is optional and unreachable from Vercel; pasted-text extraction falls back to the built-in rules.

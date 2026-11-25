@@ -10,8 +10,6 @@ export async function GET() {
   const has = (k: string) => Boolean(process.env[k]);
   const env = {
     DATABASE_URL: has("DATABASE_URL") || has("POSTGRES_URL"),
-    APP_PASSWORD: has("APP_PASSWORD"),
-    SESSION_SECRET: (process.env.SESSION_SECRET ?? "").length >= 16,
     INGEST_TOKEN: has("INGEST_TOKEN"),
     CRON_SECRET: has("CRON_SECRET"),
   };
