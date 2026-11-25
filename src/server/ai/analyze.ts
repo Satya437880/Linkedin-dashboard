@@ -1,0 +1,120 @@
+import { and, asc, desc, eq, sql } from "drizzle-orm";
+import type { DbBundle } from "../db/client";
+import { activities, aiInsights, companies, messages, prospects } from "../db/schema";
+import { leadScore } from "../scoring/leadScore";
+import { checkDraft, DEFAULT_BANNED } from "./draftCheck";
+import { classifyByRules, nextActionByRules, type Intent, type NextAction } from "./rules";
+
+export const DEFAULT_SETTINGS = {
+  ownerName: "Maple MPSS Team",
+  signature: "Best regards,\nMaple MPSS Team",
+  fixedParagraph: "Maple MPSS is a Canadian manufacturing sourcing company connecting OEMs with vetted machining and fabrication partners.",
+  bannedWords: DEFAULT_BANNED,
+};
+
+type Kind = "intent" | "summary" | "next_action" | "suggested_reply" | "follow_up_draft";
+
+const firstName = (full: string) => full.split(/\s+/)[0] ?? full;
+const tz = () => process.env.APP_TIMEZONE ?? "America/Toronto";
+const fmtDate = (d: Date) => new Intl.DateTimeFormat("en-CA", { dateStyle: "medium", timeZone: tz() }).format(d);
+
+function save(b: DbBundle, prospectId: number, kind: Kind, output: unknown, engine: string, inputMessageId?: number) {
+  b.db.insert(aiInsights).values({ prospectId, kind, output, engine, promptVersion: "rules-v1", inputMessageId: inputMessageId ?? null }).run();
+}
+
+export function latestInsight<T = unknown>(b: DbBundle, prospectId: number, kind: Kind) {
+  const r = b.db.select().from(aiInsights).where(and(eq(aiInsights.prospectId, prospectId), eq(aiInsights.kind, kind))).orderBy(desc(aiInsights.id)).limit(1).get();
+  return r ? { output: r.output as T, engine: r.engine, createdAt: r.createdAt } : null;
+}
+
+function lastInbound(b: DbBundle, prospectId: number) {
+  return b.db.select().from(messages).where(and(eq(messages.prospectId, prospectId), eq(messages.direction, "inbound"))).orderBy(desc(messages.sentAt)).limit(1).get();
+}
+
+export function classifyProspect(b: DbBundle, prospectId: number) {
+  const p = b.db.select().from(prospects).where(eq(prospects.id, prospectId)).get();
+  const msg = lastInbound(b, prospectId);
+  if (!p || !msg) return;
+  const intent = classifyByRules(msg.text, msg.sentAt);
+  const inboundCount =
+    b.db.select({ n: sql<number>`count(*)` }).from(messages).where(and(eq(messages.prospectId, prospectId), eq(messages.direction, "inbound"))).get()?.n ?? 0;
+  const category = intent?.category ?? "unclassified";
+  b.db
+    .update(prospects)
+    .set({
+      category,
+      categorySource: "rules",
+      sentiment: intent?.sentiment ?? "neutral",
+      leadScore: leadScore({ category, designation: p.designation, lastInboundAt: p.lastInboundAt, inboundCount }),
+      ...(intent?.category === "not_now" && intent.follow_up_date ? { nextFollowUpAt: new Date(intent.follow_up_date) } : {}),
+      ...(intent?.stop_contact ? { doNotContact: true, nextFollowUpAt: null } : {}),
+    })
+    .where(eq(prospects.id, prospectId))
+    .run();
+  const stored: Intent | { category: "unclassified"; confidence: number; sentiment: "neutral"; reason: string; evidence_quote: string; follow_up_date: null; stop_contact: false } =
+    intent ?? { category: "unclassified", confidence: 0, sentiment: "neutral", reason: "No keyword matched.", evidence_quote: "", follow_up_date: null, stop_contact: false };
+  save(b, prospectId, "intent", stored, "rules", msg.id);
+  if (intent?.stop_contact) {
+    b.db
+      .insert(activities)
+      .values({ prospectId, actor: "system", action: "Stop Contact Requested", details: { evidence: intent.evidence_quote }, dedupeKey: `stop:${msg.id}` })
+      .onConflictDoNothing()
+      .run();
+  }
+}
+
+export function summarizeProspect(b: DbBundle, prospectId: number) {
+  const p = b.db.select().from(prospects).where(eq(prospects.id, prospectId)).get();
+  const msgs = b.db.select().from(messages).where(eq(messages.prospectId, prospectId)).orderBy(asc(messages.sentAt)).all();
+  const last = lastInbound(b, prospectId);
+  if (!p || !last) return;
+  const co = p.companyId ? b.db.select().from(companies).where(eq(companies.id, p.companyId)).get() : null;
+  const snippet = last.text.length > 160 ? `${last.text.slice(0, 160)}...` : last.text;
+  const text = `${p.fullName}${p.designation ? `, ${p.designation}` : ""}${co ? ` at ${co.name}` : ""}, replied on ${fmtDate(last.sentAt)}: "${snippet}" The thread has ${msgs.length} message${msgs.length === 1 ? "" : "s"}.`;
+  save(b, prospectId, "summary", { text }, "rules", last.id);
+}
+
+export function nextActionForProspect(b: DbBundle, prospectId: number) {
+  const msg = lastInbound(b, prospectId);
+  if (!msg) return;
+  const intent = latestInsight<Intent>(b, prospectId, "intent")?.output ?? null;
+  const usable = intent && intent.confidence > 0 ? intent : null;
+  save(b, prospectId, "next_action", nextActionByRules(usable, msg.text), "rules", msg.id);
+}
+
+const BODY: Record<NextAction["action"], string> = {
+  send_capability_deck: "Thank you for your message. I have attached our capability deck, which covers our machining and fabrication network. Happy to go deeper on anything relevant to your parts.",
+  schedule_meeting: "Thank you for your message. Would a short call this week work to discuss the project in more detail?",
+  share_quotation: "Thank you for your message. Could you share drawings, material and expected quantities so we can prepare a quotation?",
+  answer_question: "Thank you for your message. I will come back with a direct answer to your question shortly.",
+  follow_up_in_days: "Thank you for letting me know. I will check back with you later.",
+  no_action: "Thank you for your reply.",
+};
+
+export function draftReplyForProspect(b: DbBundle, prospectId: number) {
+  const p = b.db.select().from(prospects).where(eq(prospects.id, prospectId)).get();
+  const msg = lastInbound(b, prospectId);
+  if (!p || !msg || p.doNotContact) return;
+  const action = latestInsight<NextAction>(b, prospectId, "next_action")?.output.action ?? "answer_question";
+  const text = `Hi ${firstName(p.fullName)},\n\n${BODY[action]}\n\n${DEFAULT_SETTINGS.fixedParagraph}\n\n${DEFAULT_SETTINGS.signature}`;
+  save(b, prospectId, "suggested_reply", { text, check: checkDraft(text, DEFAULT_SETTINGS.bannedWords) }, "rules", msg.id);
+}
+
+export function draftFollowUpForProspect(b: DbBundle, prospectId: number, n: 1 | 2 | 3) {
+  const p = b.db.select().from(prospects).where(eq(prospects.id, prospectId)).get();
+  if (!p || p.doNotContact) return;
+  const openers = [
+    "I wanted to follow up on my earlier note about your production needs.",
+    "Following up again in case my last message got buried.",
+    "This is my last follow-up for now. If timing is off, I will pause and check back later.",
+  ];
+  const text = `Hi ${firstName(p.fullName)},\n\n${openers[n - 1]}\n\n${DEFAULT_SETTINGS.fixedParagraph}\n\nWould a short call be useful?\n\n${DEFAULT_SETTINGS.signature}`;
+  save(b, prospectId, "follow_up_draft", { text, followUp: n, check: checkDraft(text, DEFAULT_SETTINGS.bannedWords) }, "rules");
+}
+
+export function analyzeProspect(b: DbBundle, prospectId: number) {
+  classifyProspect(b, prospectId);
+  summarizeProspect(b, prospectId);
+  nextActionForProspect(b, prospectId);
+  draftReplyForProspect(b, prospectId);
+}
