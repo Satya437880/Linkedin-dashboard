@@ -63,10 +63,38 @@ export async function endSession() {
   (await cookies()).delete(COOKIE);
 }
 
-export function checkPassword(provided: string): boolean {
+const PW_KEY = "app_password_hash";
+type PwHash = { salt: string; hash: string };
+
+function scrypt(pw: string, salt: string): string {
+  return crypto.scryptSync(pw, salt, 32).toString("hex");
+}
+
+/** A password set through "Forgot password" is stored hashed in the database and wins over APP_PASSWORD. */
+export async function checkPassword(provided: string): Promise<boolean> {
+  const { eq, db, settings } = await store();
+  const row = (await db.select().from(settings).where(eq(settings.key, PW_KEY)).limit(1))[0];
+  const saved = row?.value as PwHash | undefined;
+  if (saved?.salt && saved.hash) return safeEqual(scrypt(provided, saved.salt), saved.hash);
   const expected = process.env.APP_PASSWORD;
   if (!expected) return false;
   return safeEqual(provided, expected);
+}
+
+export async function setPassword(newPassword: string): Promise<void> {
+  const { db, settings } = await store();
+  const salt = crypto.randomBytes(16).toString("hex");
+  const value: PwHash = { salt, hash: scrypt(newPassword, salt) };
+  await db.insert(settings).values({ key: PW_KEY, value }).onConflictDoUpdate({ target: settings.key, set: { value } });
+}
+
+/** Reset is only possible when RECOVERY_CODE is configured, and only with that exact code. */
+export function recoveryEnabled(): boolean {
+  return (process.env.RECOVERY_CODE ?? "").length >= 12;
+}
+export function checkRecoveryCode(provided: string): boolean {
+  const expected = process.env.RECOVERY_CODE ?? "";
+  return expected.length >= 12 && safeEqual(provided.trim(), expected);
 }
 
 /** CSRF for forms: hidden field must equal the token bound to the session. */
@@ -79,7 +107,7 @@ export async function verifyCsrf(form: FormData): Promise<void> {
 // ---- login throttling: stored in the database so it holds across serverless instances
 const MAX_FAILS = 5;
 const LOCK_MS = 15 * 60_000;
-type Attempts = { fails: number; until: number };
+type Attempts = { fails: number; until: number; last?: number };
 
 async function store() {
   const [{ eq }, { getDb }, { settings }] = await Promise.all([import("drizzle-orm"), import("../db/client"), import("../db/schema")]);
@@ -107,8 +135,10 @@ export async function recordLoginFailure(): Promise<void> {
   const { eq, db, settings } = await store();
   const row = (await db.select().from(settings).where(eq(settings.key, key)).limit(1))[0];
   const prev = row?.value as Attempts | undefined;
-  const fails = (prev && prev.until > Date.now() - LOCK_MS ? prev.fails : 0) + 1;
-  const value: Attempts = { fails, until: fails >= MAX_FAILS ? Date.now() + LOCK_MS : 0 };
+  // Failures count together while they keep arriving within the lock window; a long quiet gap starts fresh.
+  const fresh = !prev || Date.now() - (prev.last ?? 0) > LOCK_MS;
+  const fails = (fresh ? 0 : prev.fails) + 1;
+  const value: Attempts = { fails, last: Date.now(), until: fails >= MAX_FAILS ? Date.now() + LOCK_MS : 0 };
   await db.insert(settings).values({ key, value }).onConflictDoUpdate({ target: settings.key, set: { value } });
 }
 

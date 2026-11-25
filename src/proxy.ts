@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { readSessionValue } from "@/server/auth/auth";
 
 /** One gate in front of every page, so a new page can never be left open by accident. */
-const OPEN = [/^\/login(\/|$)/, /^\/api\/ingest(\/|$)/, /^\/api\/cron(\/|$)/, /^\/api\/health$/, /^\/robots\.txt$/, /^\/icon\.png$/, /^\/logo(-full)?\.png$/];
+const OPEN = [/^\/login(\/|$)/, /^\/reset$/, /^\/api\/ingest(\/|$)/, /^\/api\/cron(\/|$)/, /^\/api\/health$/, /^\/robots\.txt$/, /^\/icon\.png$/, /^\/logo(-full)?\.png$/];
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
