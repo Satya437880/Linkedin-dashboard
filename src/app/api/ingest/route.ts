@@ -3,7 +3,7 @@ import { ZodError } from "zod";
 import { checkToken } from "@/server/auth/auth";
 import { getBundle } from "@/server/db/client";
 import { ingestEvent } from "@/server/ingest/ingestEvent";
-import { startWorker } from "@/server/jobs/worker";
+import { drainJobs } from "@/server/jobs/worker";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,8 +29,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400, headers: CORS });
   }
   try {
-    startWorker();
-    const result = ingestEvent(getBundle(), body);
+    const b = getBundle();
+    const result = await ingestEvent(b, body);
+    // No background process on Vercel: analyse what just arrived before the function exits.
+    await drainJobs(b, { maxJobs: 12, maxMs: 6_000 }).catch((e) => console.error("job drain failed", e));
     return NextResponse.json({ ok: true, result }, { headers: CORS });
   } catch (e) {
     if (e instanceof ZodError) {

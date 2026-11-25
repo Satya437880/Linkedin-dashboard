@@ -1,15 +1,15 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, uniqueIndex, index, primaryKey } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, serial, boolean, timestamp, jsonb, uniqueIndex, index, primaryKey } from "drizzle-orm/pg-core";
 
-const ts = (name: string) => integer(name, { mode: "timestamp_ms" });
-const nowMs = sql`(cast(unixepoch('subsec') * 1000 as integer))`;
+const ts = (name: string) => timestamp(name, { mode: "date", withTimezone: true });
+const nowMs = sql`now()`;
 const createdAt = () => ts("created_at").notNull().default(nowMs);
-const id = () => integer("id").primaryKey({ autoIncrement: true });
+const id = () => serial("id").primaryKey();
 
 export const CATEGORIES = ["hot", "warm", "cold", "not_now", "negative", "unclassified"] as const;
 export const STAGES = ["fresh", "follow_up_1", "follow_up_2", "follow_up_3", "meeting_scheduled", "opportunity", "won", "lost"] as const;
 
-export const companies = sqliteTable("companies", {
+export const companies = pgTable("companies", {
   id: id(),
   name: text("name").notNull(),
   linkedinUrl: text("linkedin_url"),
@@ -18,12 +18,12 @@ export const companies = sqliteTable("companies", {
   employeeCount: text("employee_count"),
   revenueText: text("revenue_text"),
   headquarters: text("headquarters"),
-  aiOverview: text("ai_overview", { mode: "json" }),
+  aiOverview: jsonb("ai_overview"),
   enrichedAt: ts("enriched_at"),
   createdAt: createdAt(),
 });
 
-export const prospects = sqliteTable(
+export const prospects = pgTable(
   "prospects",
   {
     id: id(),
@@ -42,7 +42,7 @@ export const prospects = sqliteTable(
     sentiment: text("sentiment", { enum: ["positive", "neutral", "negative"] }),
     leadScore: integer("lead_score").notNull().default(0),
     stage: text("stage", { enum: STAGES }).notNull().default("fresh"),
-    doNotContact: integer("do_not_contact", { mode: "boolean" }).notNull().default(false),
+    doNotContact: boolean("do_not_contact").notNull().default(false),
     nextFollowUpAt: ts("next_follow_up_at"),
     lastInboundAt: ts("last_inbound_at"),
     lastOutboundAt: ts("last_outbound_at"),
@@ -57,7 +57,7 @@ export const prospects = sqliteTable(
   ],
 );
 
-export const conversations = sqliteTable("conversations", {
+export const conversations = pgTable("conversations", {
   id: id(),
   prospectId: integer("prospect_id").notNull().references(() => prospects.id),
   externalThreadId: text("external_thread_id").notNull().unique(),
@@ -67,7 +67,7 @@ export const conversations = sqliteTable("conversations", {
   createdAt: createdAt(),
 });
 
-export const messages = sqliteTable(
+export const messages = pgTable(
   "messages",
   {
     id: id(),
@@ -85,32 +85,32 @@ export const messages = sqliteTable(
   (t) => [index("messages_conv_idx").on(t.conversationId, t.sentAt)],
 );
 
-export const aiInsights = sqliteTable("ai_insights", {
+export const aiInsights = pgTable("ai_insights", {
   id: id(),
   prospectId: integer("prospect_id").notNull().references(() => prospects.id),
   kind: text("kind", { enum: ["intent", "summary", "next_action", "suggested_reply", "follow_up_draft", "company_overview"] }).notNull(),
-  output: text("output", { mode: "json" }).notNull(),
+  output: jsonb("output").notNull(),
   engine: text("engine").notNull(),
   promptVersion: text("prompt_version"),
   inputMessageId: integer("input_message_id").references(() => messages.id),
   createdAt: createdAt(),
 });
 
-export const activities = sqliteTable(
+export const activities = pgTable(
   "activities",
   {
     id: id(),
     prospectId: integer("prospect_id").references(() => prospects.id),
     actor: text("actor", { enum: ["system", "user"] }).notNull(),
     action: text("action").notNull(),
-    details: text("details", { mode: "json" }),
+    details: jsonb("details"),
     dedupeKey: text("dedupe_key").unique(),
     occurredAt: ts("occurred_at").notNull().default(nowMs),
   },
   (t) => [index("activities_prospect_idx").on(t.prospectId, t.occurredAt)],
 );
 
-export const stageHistory = sqliteTable("stage_history", {
+export const stageHistory = pgTable("stage_history", {
   id: id(),
   prospectId: integer("prospect_id").notNull().references(() => prospects.id),
   fromStage: text("from_stage"),
@@ -120,16 +120,16 @@ export const stageHistory = sqliteTable("stage_history", {
   occurredAt: ts("occurred_at").notNull().default(nowMs),
 });
 
-export const notes = sqliteTable("notes", {
+export const notes = pgTable("notes", {
   id: id(),
   prospectId: integer("prospect_id").notNull().references(() => prospects.id),
   body: text("body").notNull(),
   createdAt: createdAt(),
 });
 
-export const tags = sqliteTable("tags", { id: id(), name: text("name").notNull().unique() });
+export const tags = pgTable("tags", { id: id(), name: text("name").notNull().unique() });
 
-export const prospectTags = sqliteTable(
+export const prospectTags = pgTable(
   "prospect_tags",
   {
     prospectId: integer("prospect_id").notNull().references(() => prospects.id),
@@ -138,7 +138,7 @@ export const prospectTags = sqliteTable(
   (t) => [primaryKey({ columns: [t.prospectId, t.tagId] })],
 );
 
-export const attachments = sqliteTable("attachments", {
+export const attachments = pgTable("attachments", {
   id: id(),
   prospectId: integer("prospect_id").notNull().references(() => prospects.id),
   kind: text("kind", { enum: ["brochure", "capability_deck", "quotation", "drawing", "meeting_notes", "other"] }).notNull(),
@@ -149,7 +149,7 @@ export const attachments = sqliteTable("attachments", {
   createdAt: createdAt(),
 });
 
-export const alerts = sqliteTable("alerts", {
+export const alerts = pgTable("alerts", {
   id: id(),
   prospectId: integer("prospect_id").references(() => prospects.id),
   type: text("type", { enum: ["new_reply", "follow_up_due", "meeting_scheduled", "profile_view", "hot_lead", "no_response_14d", "capture_stale"] }).notNull(),
@@ -158,32 +158,32 @@ export const alerts = sqliteTable("alerts", {
   createdAt: createdAt(),
 });
 
-export const invitations = sqliteTable("invitations", {
+export const invitations = pgTable("invitations", {
   id: id(),
   providerUserId: text("provider_user_id").notNull(),
   sentAt: ts("sent_at"),
   acceptedAt: ts("accepted_at"),
 });
 
-export const rawEvents = sqliteTable(
+export const rawEvents = pgTable(
   "raw_events",
   {
     id: id(),
     source: text("source").notNull(),
     externalMessageId: text("external_message_id").notNull(),
     eventType: text("event_type").notNull(),
-    payload: text("payload", { mode: "json" }).notNull(),
+    payload: jsonb("payload").notNull(),
     receivedAt: createdAt(),
   },
   (t) => [uniqueIndex("raw_events_uq").on(t.source, t.externalMessageId)],
 );
 
-export const jobs = sqliteTable(
+export const jobs = pgTable(
   "jobs",
   {
     id: id(),
     type: text("type").notNull(),
-    payload: text("payload", { mode: "json" }).notNull(),
+    payload: jsonb("payload").notNull(),
     status: text("status", { enum: ["pending", "running", "done", "failed"] }).notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
     runAfter: ts("run_after").notNull().default(nowMs),
@@ -193,21 +193,21 @@ export const jobs = sqliteTable(
   (t) => [index("jobs_status_idx").on(t.status, t.runAfter)],
 );
 
-export const settings = sqliteTable("settings", {
+export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
-  value: text("value", { mode: "json" }).notNull(),
+  value: jsonb("value").notNull(),
 });
 
 /** Audit and research details per prospect, filled from a connected sheet or pasted text. One row per prospect. */
-export const prospectAudit = sqliteTable("prospect_audit", {
+export const prospectAudit = pgTable("prospect_audit", {
   id: id(),
   prospectId: integer("prospect_id").notNull().unique().references(() => prospects.id),
   contactInfo: text("contact_info"),
-  findings: text("findings", { mode: "json" }).$type<string[]>(),
-  recommendations: text("recommendations", { mode: "json" }).$type<string[]>(),
-  issues: text("issues", { mode: "json" }).$type<string[]>(),
-  painPoints: text("pain_points", { mode: "json" }).$type<string[]>(),
-  requirements: text("requirements", { mode: "json" }).$type<string[]>(),
+  findings: jsonb("findings").$type<string[]>(),
+  recommendations: jsonb("recommendations").$type<string[]>(),
+  issues: jsonb("issues").$type<string[]>(),
+  painPoints: jsonb("pain_points").$type<string[]>(),
+  requirements: jsonb("requirements").$type<string[]>(),
   notes: text("notes"),
   source: text("source", { enum: ["sheet", "paste", "manual"] }),
   rawText: text("raw_text"),

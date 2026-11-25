@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, max, sql } from "drizzle-orm";
 import type { DbBundle } from "../db/client";
 import { activities, alerts, companies, conversations, jobs, messages, prospects, rawEvents } from "../db/schema";
 import { cleanHeadline, cleanName } from "../../lib/clean";
@@ -19,28 +19,30 @@ export function parseHeadline(headline?: string | null): { designation: string |
   return { designation: m[1].trim() || null, companyName: m[2].trim() || null };
 }
 
-export function enqueueJob(b: DbBundle, type: string, payload: unknown, runAfter = new Date()) {
-  b.db.insert(jobs).values({ type, payload, runAfter }).run();
+export async function enqueueJob(b: DbBundle, type: string, payload: unknown, runAfter = new Date()) {
+  await b.db.insert(jobs).values({ type, payload, runAfter });
 }
 
-/** The single entry point for every capture path (extension, paste form, CSV). Idempotent. */
-export function ingestEvent(b: DbBundle, input: unknown): IngestResult {
-  const ev: IngestEvent = ingestEventSchema.parse(input);
-  const { db } = b;
+const first = <T,>(rows: T[]): T | undefined => rows[0];
 
-  return b.sqlite.transaction((): IngestResult => {
+/** The single entry point for every capture path (extension, paste form, CSV). Idempotent. */
+export async function ingestEvent(base: DbBundle, input: unknown): Promise<IngestResult> {
+  const ev: IngestEvent = ingestEventSchema.parse(input);
+
+  return base.db.transaction(async (tx): Promise<IngestResult> => {
+    const b: DbBundle = { db: tx as unknown as DbBundle["db"] };
+    const { db } = b;
     // The extension can get a message's direction wrong on one visit and right on a later one. When the same
     // message arrives again with a different direction, correct it instead of ignoring it as a duplicate.
     if (ev.source === "extension" && ev.eventType === "message.new") {
-      const prior = db.select().from(messages).where(eq(messages.externalMessageId, ev.externalMessageId)).get();
+      const prior = first(await db.select().from(messages).where(eq(messages.externalMessageId, ev.externalMessageId)).limit(1));
       if (prior && prior.direction !== ev.direction) return correctDirection(b, prior.id, ev);
     }
-    const inserted = db
+    const inserted = await db
       .insert(rawEvents)
       .values({ source: ev.source, externalMessageId: ev.externalMessageId, eventType: ev.eventType, payload: ev.raw ?? ev })
       .onConflictDoNothing()
-      .returning({ id: rawEvents.id })
-      .all();
+      .returning({ id: rawEvents.id });
     if (inserted.length === 0) return { status: "duplicate" };
 
     if (ev.eventType !== "message.new") {
@@ -54,22 +56,22 @@ export function ingestEvent(b: DbBundle, input: unknown): IngestResult {
     const { designation, companyName } = parseHeadline(headline);
 
     // 1. prospect (and company when new)
-    let prospect = db.select().from(prospects).where(eq(prospects.providerUserId, ev.sender.providerUserId)).get();
+    let prospect = first(await db.select().from(prospects).where(eq(prospects.providerUserId, ev.sender.providerUserId)).limit(1));
     let createdProspect = false;
     if (!prospect) {
       let companyId: number | null = null;
       if (companyName) {
-        const existing = db
-          .select()
-          .from(companies)
-          .where(sql`lower(${companies.name}) = lower(${companyName})`)
-          .get();
-        companyId = existing
-          ? existing.id
-          : db.insert(companies).values({ name: companyName }).returning({ id: companies.id }).get().id;
-        if (!existing) enqueueJob(b, "enrich_company", { companyId });
+        const existing = first(
+          await db
+            .select()
+            .from(companies)
+            .where(sql`lower(${companies.name}) = lower(${companyName})`)
+            .limit(1),
+        );
+        companyId = existing ? existing.id : (await db.insert(companies).values({ name: companyName }).returning({ id: companies.id }))[0].id;
+        if (!existing) await enqueueJob(b, "enrich_company", { companyId });
       }
-      prospect = db
+      prospect = (await db
         .insert(prospects)
         .values({
           providerUserId: ev.sender.providerUserId,
@@ -81,28 +83,26 @@ export function ingestEvent(b: DbBundle, input: unknown): IngestResult {
           designation,
           companyId,
         })
-        .returning()
-        .get();
+        .returning())[0];
       createdProspect = true;
-      db.insert(activities)
-        .values({ prospectId: prospect.id, actor: "system", action: companyId ? "Prospect and company created" : "Prospect created", details: { source: ev.source }, dedupeKey: `prospect:${prospect.id}`, occurredAt: now })
-        .run();
+      await db
+        .insert(activities)
+        .values({ prospectId: prospect.id, actor: "system", action: companyId ? "Prospect and company created" : "Prospect created", details: { source: ev.source }, dedupeKey: `prospect:${prospect.id}`, occurredAt: now });
     }
 
     // 2. conversation
-    let conv = db.select().from(conversations).where(eq(conversations.externalThreadId, ev.externalThreadId)).get();
+    let conv = first(await db.select().from(conversations).where(eq(conversations.externalThreadId, ev.externalThreadId)).limit(1));
     if (!conv) {
-      conv = db
+      conv = (await db
         .insert(conversations)
         .values({ prospectId: prospect.id, externalThreadId: ev.externalThreadId, inbox: ev.inbox, threadUrl: ev.threadUrl ?? null })
-        .returning()
-        .get();
+        .returning())[0];
     } else if (!conv.threadUrl && ev.threadUrl) {
-      db.update(conversations).set({ threadUrl: ev.threadUrl }).where(eq(conversations.id, conv.id)).run();
+      await db.update(conversations).set({ threadUrl: ev.threadUrl }).where(eq(conversations.id, conv.id));
     }
 
     // 3. message (unique on external id)
-    const msg = db
+    const msg = first(await db
       .insert(messages)
       .values({
         conversationId: conv.id,
@@ -114,13 +114,13 @@ export function ingestEvent(b: DbBundle, input: unknown): IngestResult {
         senderName: ev.direction === "inbound" ? fullName : "Me",
       })
       .onConflictDoNothing()
-      .returning({ id: messages.id })
-      .get();
+      .returning({ id: messages.id }));
     if (!msg) return { status: "duplicate" };
 
     // 4. activity + timestamps
     const inbound = ev.direction === "inbound";
-    db.insert(activities)
+    await db
+      .insert(activities)
       .values({
         prospectId: prospect.id,
         actor: "system",
@@ -128,60 +128,60 @@ export function ingestEvent(b: DbBundle, input: unknown): IngestResult {
         details: { messageId: msg.id, inbox: ev.inbox },
         dedupeKey: `msg:${ev.externalMessageId}`,
         occurredAt: ev.sentAt,
-      })
-      .run();
+      });
 
     const newer = (cur: Date | null) => (!cur || ev.sentAt > cur ? ev.sentAt : cur);
-    db.update(prospects)
+    await db
+      .update(prospects)
       .set({
         lastActivityAt: newer(prospect.lastActivityAt),
         ...(inbound
           ? { lastInboundAt: newer(prospect.lastInboundAt), nextFollowUpAt: null }
           : { lastOutboundAt: newer(prospect.lastOutboundAt) }),
       })
-      .where(eq(prospects.id, prospect.id))
-      .run();
+      .where(eq(prospects.id, prospect.id));
 
     // 5. inbound: alert + AI jobs (processed from Phase 2 onward)
     if (inbound) {
-      db.insert(alerts)
+      await db
+        .insert(alerts)
         .values({ prospectId: prospect.id, type: "new_reply", dedupeKey: `new_reply:${ev.externalMessageId}` })
-        .onConflictDoNothing()
-        .run();
+        .onConflictDoNothing();
       for (const type of ["classify_intent", "summarize_conversation", "next_best_action", "draft_reply"]) {
-        enqueueJob(b, type, { prospectId: prospect.id, messageId: msg.id });
+        await enqueueJob(b, type, { prospectId: prospect.id, messageId: msg.id });
       }
     }
 
-    if (ev.source === "extension") markSheetDuplicates(b, prospect.id);
+    if (ev.source === "extension") await markSheetDuplicates(b, prospect.id);
     return { status: "processed", prospectId: prospect.id, messageId: msg.id, createdProspect };
-  })();
+  });
 }
 
-export function lastCaptureAt(b: DbBundle): Date | null {
-  const r = b.db.select({ t: sql<number | null>`max(${rawEvents.receivedAt})` }).from(rawEvents).get();
+export async function lastCaptureAt(b: DbBundle): Promise<Date | null> {
+  const r = first(await b.db.select({ t: max(rawEvents.receivedAt) }).from(rawEvents));
   return r?.t ? new Date(r.t) : null;
 }
 
 
 /** Fixes the direction of a stored message, recomputes the prospect's reply times, and logs it. */
-function correctDirection(b: DbBundle, messageId: number, ev: IngestEvent): IngestResult {
+async function correctDirection(b: DbBundle, messageId: number, ev: IngestEvent): Promise<IngestResult> {
   const { db } = b;
-  const m = db.select().from(messages).where(eq(messages.id, messageId)).get()!;
-  const p = db.select().from(prospects).where(eq(prospects.id, m.prospectId)).get()!;
+  const m = (await db.select().from(messages).where(eq(messages.id, messageId)).limit(1))[0];
+  const p = (await db.select().from(prospects).where(eq(prospects.id, m.prospectId)).limit(1))[0];
   const inbound = ev.direction === "inbound";
-  db.update(messages).set({ direction: ev.direction, senderName: inbound ? p.fullName : "Me" }).where(eq(messages.id, messageId)).run();
+  await db.update(messages).set({ direction: ev.direction, senderName: inbound ? p.fullName : "Me" }).where(eq(messages.id, messageId));
 
-  const latest = (dir: "inbound" | "outbound") =>
-    db.select({ t: sql<number | null>`max(${messages.sentAt})` }).from(messages).where(and(eq(messages.prospectId, p.id), eq(messages.direction, dir))).get()?.t ?? null;
-  const lastIn = latest("inbound");
-  const lastOut = latest("outbound");
-  db.update(prospects)
+  const latest = async (dir: "inbound" | "outbound") =>
+    first(await db.select({ t: max(messages.sentAt) }).from(messages).where(and(eq(messages.prospectId, p.id), eq(messages.direction, dir))))?.t ?? null;
+  const lastIn = await latest("inbound");
+  const lastOut = await latest("outbound");
+  await db
+    .update(prospects)
     .set({ lastInboundAt: lastIn ? new Date(lastIn) : null, lastOutboundAt: lastOut ? new Date(lastOut) : null })
-    .where(eq(prospects.id, p.id))
-    .run();
+    .where(eq(prospects.id, p.id));
 
-  db.insert(activities)
+  await db
+    .insert(activities)
     .values({
       prospectId: p.id,
       actor: "system",
@@ -189,16 +189,15 @@ function correctDirection(b: DbBundle, messageId: number, ev: IngestEvent): Inge
       details: { messageId, from: m.direction, to: ev.direction },
       dedupeKey: `fix:${ev.externalMessageId}:${ev.direction}`,
     })
-    .onConflictDoNothing()
-    .run();
+    .onConflictDoNothing();
 
   // A message that turned out to be the client's needs analysing. A category you set by hand is left alone.
   if (inbound) {
     const types = p.categorySource === "manual"
       ? ["summarize_conversation", "next_best_action", "draft_reply"]
       : ["classify_intent", "summarize_conversation", "next_best_action", "draft_reply"];
-    for (const type of types) enqueueJob(b, type, { prospectId: p.id, messageId });
+    for (const type of types) await enqueueJob(b, type, { prospectId: p.id, messageId });
   }
-  markSheetDuplicates(b, p.id);
+  await markSheetDuplicates(b, p.id);
   return { status: "corrected", prospectId: p.id, messageId };
 }

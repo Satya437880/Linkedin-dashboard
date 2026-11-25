@@ -46,10 +46,10 @@ const Badge = ({ ok, children }: { ok: boolean; children: React.ReactNode }) => 
 
 export default async function SettingsPage() {
   const b = getBundle();
-  const last = lastCaptureAt(b);
-  const nP = b.db.select({ n: count() }).from(prospects).get()?.n ?? 0;
-  const nM = b.db.select({ n: count() }).from(messages).get()?.n ?? 0;
-  const nJ = b.db.select({ n: count() }).from(jobs).get()?.n ?? 0;
+  const last = await lastCaptureAt(b);
+  const nP = (await b.db.select({ n: count() }).from(prospects))[0]?.n ?? 0;
+  const nM = (await b.db.select({ n: count() }).from(messages))[0]?.n ?? 0;
+  const nJ = (await b.db.select({ n: count() }).from(jobs))[0]?.n ?? 0;
   const ol = await ollamaStatus();
   const tz = process.env.APP_TIMEZONE ?? "America/Toronto";
   const fmt = (d: Date) => new Intl.DateTimeFormat("en-CA", { dateStyle: "medium", timeStyle: "short", timeZone: tz }).format(d);
@@ -89,7 +89,7 @@ export default async function SettingsPage() {
             <Row k="Prospects" v={nP} />
             <Row k="Messages" v={nM} />
             <Row k="Queued jobs" v={nJ} />
-            <Row k="Database" v={<span className="font-mono text-sm">{path.resolve(process.env.DATABASE_PATH ?? "./data/dashboard.db")}</span>} />
+            <Row k="Database" v={<span className="font-mono text-sm">Supabase Postgres</span>} />
             <Row k="Timezone" v={tz} />
           </dl>
         </Card>

@@ -153,15 +153,15 @@ export type SheetConnection = {
 
 const KEY = "sheet_connection";
 
-export function getConnection(b: DbBundle): SheetConnection | null {
-  const r = b.db.select().from(settings).where(eq(settings.key, KEY)).get();
+export async function getConnection(b: DbBundle): Promise<SheetConnection | null> {
+  const r = (await b.db.select().from(settings).where(eq(settings.key, KEY)).limit(1))[0];
   return (r?.value as SheetConnection | undefined) ?? null;
 }
-export function saveConnection(b: DbBundle, c: SheetConnection) {
-  b.db.insert(settings).values({ key: KEY, value: c }).onConflictDoUpdate({ target: settings.key, set: { value: c } }).run();
+export async function saveConnection(b: DbBundle, c: SheetConnection) {
+  await b.db.insert(settings).values({ key: KEY, value: c }).onConflictDoUpdate({ target: settings.key, set: { value: c } });
 }
-export function deleteConnection(b: DbBundle) {
-  b.db.delete(settings).where(eq(settings.key, KEY)).run();
+export async function deleteConnection(b: DbBundle) {
+  await b.db.delete(settings).where(eq(settings.key, KEY));
 }
 
 /** Reads the sheet, maps its columns and writes every matching prospect. Safe to run repeatedly. */
@@ -177,7 +177,7 @@ export async function syncSheet(b: DbBundle, url: string, opts: { fetchFn?: type
     throw new SheetError("columns", "No usable columns found. The first row needs a Name or LinkedIn column and at least one of: Designation, Company, Company Overview, Audit Findings, Recommendations, Notes, Website, Industry.");
   }
 
-  const all = b.db.select().from(prospects).all().filter((p) => !p.archivedAt);
+  const all = (await b.db.select().from(prospects)).filter((p) => !p.archivedAt);
   const bySlug = new Map<string, number>();
   const byName = new Map<string, number[]>();
   for (const p of all) {
@@ -204,7 +204,7 @@ export async function syncSheet(b: DbBundle, url: string, opts: { fetchFn?: type
     matchedIds.push(id);
     const { person: _p, ...rest } = data;
     void _p;
-    if (applyAudit(b, id, rest, { source: "sheet", actor: "system" }).changed.length) updated++;
+    if ((await applyAudit(b, id, rest, { source: "sheet", actor: "system" })).changed.length) updated++;
   }
 
   const conn: SheetConnection = {
@@ -220,7 +220,7 @@ export async function syncSheet(b: DbBundle, url: string, opts: { fetchFn?: type
     unmappedHeaders: unmapped.slice(0, 12),
     matchedIds,
   };
-  saveConnection(b, conn);
+  await saveConnection(b, conn);
   return conn;
 }
 

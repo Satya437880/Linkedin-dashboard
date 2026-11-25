@@ -13,7 +13,7 @@ export async function saveDetails(form: FormData) {
   await verifyCsrf(form);
   const id = Number(form.get("prospectId"));
   const b = getBundle();
-  const p = b.db.select().from(prospects).where(eq(prospects.id, id)).get();
+  const p = (await b.db.select().from(prospects).where(eq(prospects.id, id)).limit(1))[0];
   if (!p) throw new Error("Prospect not found");
 
   const location = clean(form.get("location"));
@@ -27,30 +27,29 @@ export async function saveDetails(form: FormData) {
 
   const changed: string[] = [];
   if (location !== p.location) {
-    b.db.update(prospects).set({ location }).where(eq(prospects.id, id)).run();
+    await b.db.update(prospects).set({ location }).where(eq(prospects.id, id));
     changed.push("location");
   }
   if (p.companyId) {
-    const c = b.db.select().from(companies).where(eq(companies.id, p.companyId)).get()!;
+    const c = (await b.db.select().from(companies).where(eq(companies.id, p.companyId)).limit(1))[0];
     const prev = (c.aiOverview as { bullets?: string[] } | null)?.bullets ?? [];
     const overviewChanged = JSON.stringify(prev) !== JSON.stringify(bullets);
     if (website !== c.website) changed.push("website");
     if (address !== c.headquarters) changed.push("company address");
     if (overviewChanged) changed.push("company overview");
     if (changed.some((x) => x !== "location")) {
-      b.db
+      await b.db
         .update(companies)
         .set({
           website,
           headquarters: address,
           ...(overviewChanged ? { aiOverview: { bullets, summary: bullets[0] ?? null, sources: [], manual: true }, enrichedAt: new Date() } : {}),
         })
-        .where(eq(companies.id, c.id))
-        .run();
+        .where(eq(companies.id, c.id));
     }
   }
   if (changed.length) {
-    b.db.insert(activities).values({ prospectId: id, actor: "user", action: "Details updated", details: { fields: changed } }).run();
+    await b.db.insert(activities).values({ prospectId: id, actor: "user", action: "Details updated", details: { fields: changed } });
   }
   revalidatePath(`/prospects/${id}`);
 }

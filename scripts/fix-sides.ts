@@ -11,13 +11,12 @@ import { whoWrote } from "../src/server/ingest/sides";
 const apply = process.argv.includes("--apply");
 const b = getBundle();
 
-const rows = b.db
+const rows = await b.db
   .select({ m: messages, p: prospects, thread: conversations.externalThreadId, inbox: conversations.inbox })
   .from(messages)
   .innerJoin(prospects, eq(messages.prospectId, prospects.id))
   .innerJoin(conversations, eq(messages.conversationId, conversations.id))
-  .where(and(like(messages.externalMessageId, "dom:%"), eq(messages.direction, "outbound")))
-  .all();
+  .where(and(like(messages.externalMessageId, "dom:%"), eq(messages.direction, "outbound")));
 
 let toClient = 0, staysOurs = 0, unsure = 0, done = 0;
 const lines: string[] = [];
@@ -31,11 +30,11 @@ for (const { m, p, thread, inbox } of rows) {
   lines.push(`${p.fullName.slice(0, 20).padEnd(20)} | ${v.why.padEnd(28)} | ${short}`);
   if (apply) {
     // Same path the extension uses, so the audit log, reply times and analysis jobs are handled for us.
-    const r = ingestEvent(b, {
+    const r = (await ingestEvent(b, {
       source: "extension", eventType: "message.new", externalMessageId: m.externalMessageId, externalThreadId: thread,
       inbox: inbox === "sales_navigator" ? "sales_navigator" : "classic", direction: "inbound", text: m.text, sentAt: m.sentAt,
       sender: { providerUserId: p.providerUserId, fullName: p.fullName, headline: p.headline },
-    });
+    }));
     if (r.status === "corrected") done++;
   }
 }

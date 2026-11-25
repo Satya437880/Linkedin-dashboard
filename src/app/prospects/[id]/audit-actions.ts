@@ -20,11 +20,11 @@ export async function sheetAction(_prev: SheetState, form: FormData): Promise<Sh
 
   try {
     if (intent === "delete") {
-      deleteConnection(b);
+      await deleteConnection(b);
       return done({ ok: true, message: "Sheet link deleted. Details already imported stay on the prospects." });
     }
     if (intent === "refresh") {
-      const conn = getConnection(b);
+      const conn = await getConnection(b);
       if (!conn) return { error: "No sheet is connected." };
       const c = await syncSheet(b, conn.url, { connectedAt: conn.connectedAt });
       return done({ ok: true, message: `Refreshed. ${c.matched} of ${c.total} rows matched a prospect, ${c.updated} updated.` });
@@ -32,8 +32,8 @@ export async function sheetAction(_prev: SheetState, form: FormData): Promise<Sh
     if (!url) return { error: "Paste the sheet link first." };
     if (intent === "save") {
       const p = parseSheetUrl(url); // validates the link without reading it
-      const prev = getConnection(b);
-      saveConnection(b, {
+      const prev = await getConnection(b);
+      await saveConnection(b, {
         url, csvUrl: p.csvUrl, connectedAt: prev?.connectedAt ?? new Date().toISOString(), lastSyncAt: null,
         total: 0, matched: 0, updated: 0, unmatched: [], columns: [], unmappedHeaders: [], matchedIds: [],
       });
@@ -96,14 +96,14 @@ export async function analyzeAction(_prev: PasteAuditState, form: FormData): Pro
   // Who is this about? A chosen prospect wins; otherwise detect from Person / LinkedIn in the text.
   let target: { id: number; fullName: string };
   if (chosen !== "auto") {
-    const p = b.db.select().from(prospects).where(eq(prospects.id, Number(chosen))).get();
+    const p = (await b.db.select().from(prospects).where(eq(prospects.id, Number(chosen))).limit(1))[0];
     if (!p) return { error: "That prospect was not found. Choose another." };
     target = { id: p.id, fullName: p.fullName };
     if (data.person && !sameName(data.person, p.fullName) && !confirm) {
       return { mismatch: { found: data.person, expected: p.fullName } };
     }
   } else {
-    const found = findProspectFor(b, data);
+    const found = await findProspectFor(b, data);
     if (!found) return { error: "Could not tell which prospect this is. Include Person: or LinkedIn: in the text, or choose a prospect above." };
     if ("ambiguous" in found) return { error: `More than one prospect matches (${found.ambiguous.join(", ")}). Choose the right one above.` };
     target = found;
@@ -111,7 +111,7 @@ export async function analyzeAction(_prev: PasteAuditState, form: FormData): Pro
 
   const { person: _person, ...rest } = data;
   void _person;
-  const res = applyAudit(b, target.id, rest, { source: "paste", actor: "user", rawText: text });
+  const res = await applyAudit(b, target.id, rest, { source: "paste", actor: "user", rawText: text });
   revalidatePath("/", "layout");
   const who = { id: target.id, name: target.fullName };
   if (res.changed.length === 0) return { ok: true, message: `Nothing new for ${target.fullName}. Everything in this text is already saved.`, populated: [], engine, target: who };

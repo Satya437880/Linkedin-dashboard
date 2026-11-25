@@ -22,55 +22,42 @@ export const backoffMs = (attempt: number) => Math.min(60_000 * 2 ** (attempt - 
 export async function runNextJob(b: DbBundle, now = new Date()): Promise<boolean> {
   const types = Object.keys(handlers);
   if (types.length === 0) return false;
-  const due = b.db
-    .select()
-    .from(jobs)
-    .where(and(eq(jobs.status, "pending"), lte(jobs.runAfter, now)))
-    .orderBy(asc(jobs.id))
-    .all()
-    .find((j) => handlers[j.type]);
+  const due = (
+    await b.db
+      .select()
+      .from(jobs)
+      .where(and(eq(jobs.status, "pending"), lte(jobs.runAfter, now)))
+      .orderBy(asc(jobs.id))
+  ).find((j) => handlers[j.type]);
   if (!due) return false;
 
-  b.db.update(jobs).set({ status: "running", attempts: due.attempts + 1 }).where(eq(jobs.id, due.id)).run();
+  await b.db.update(jobs).set({ status: "running", attempts: due.attempts + 1 }).where(eq(jobs.id, due.id));
   try {
     await handlers[due.type](b, due.payload);
-    b.db.update(jobs).set({ status: "done", lastError: null }).where(eq(jobs.id, due.id)).run();
+    await b.db.update(jobs).set({ status: "done", lastError: null }).where(eq(jobs.id, due.id));
   } catch (e) {
     const attempts = due.attempts + 1;
     const msg = e instanceof Error ? e.message : String(e);
     if (attempts >= MAX_ATTEMPTS) {
-      b.db.update(jobs).set({ status: "failed", lastError: msg }).where(eq(jobs.id, due.id)).run();
+      await b.db.update(jobs).set({ status: "failed", lastError: msg }).where(eq(jobs.id, due.id));
     } else {
-      b.db
+      await b.db
         .update(jobs)
         .set({ status: "pending", lastError: msg, runAfter: new Date(now.getTime() + backoffMs(attempts)) })
-        .where(eq(jobs.id, due.id))
-        .run();
+        .where(eq(jobs.id, due.id));
     }
   }
   return true;
 }
 
-const g = globalThis as unknown as { __workerStarted?: boolean };
-
-export function startWorker() {
-  if (g.__workerStarted) return;
-  g.__workerStarted = true;
-  const b = getBundle();
-  // recover jobs left "running" by a crash
-  b.db.update(jobs).set({ status: "pending" }).where(eq(jobs.status, "running")).run();
-  let busy = false;
-  const tick = async () => {
-    if (busy) return;
-    busy = true;
-    try {
-      while (await runNextJob(b)) {
-        /* drain */
-      }
-    } finally {
-      busy = false;
-    }
-  };
-  setInterval(tick, 30_000).unref();
-  void tick();
+/**
+ * Serverless has no long-lived timer, so jobs are drained on demand: after each ingest, and by the cron route.
+ * Stops after maxJobs or maxMs so a request never runs past the function time limit.
+ */
+export async function drainJobs(b: DbBundle = getBundle(), opts: { maxJobs?: number; maxMs?: number } = {}): Promise<number> {
+  const { maxJobs = 25, maxMs = 8_000 } = opts;
+  const started = Date.now();
+  let n = 0;
+  while (n < maxJobs && Date.now() - started < maxMs && (await runNextJob(b))) n++;
+  return n;
 }

@@ -28,7 +28,7 @@ export async function addMessage(_prev: PasteState, form: FormData): Promise<Pas
   const slug = (values.url.split("/in/")[1] ?? values.name).replace(/[/?#].*$/, "").toLowerCase();
   let id: number | null = null;
   try {
-    const r = ingestEvent(getBundle(), {
+    const r = await ingestEvent(getBundle(), {
       source: "manual",
       eventType: "message.new",
       externalMessageId: `manual:${slug}:${Date.now()}`,

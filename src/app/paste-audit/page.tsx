@@ -23,7 +23,7 @@ Optimize mobile navigation.`;
 export default async function PasteAuditPage({ searchParams }: { searchParams: Promise<{ prospect?: string }> }) {
   const s = await requireSession();
   const { prospect } = await searchParams;
-  const list = getDb().select({ id: prospects.id, name: prospects.fullName }).from(prospects).where(isNull(prospects.archivedAt)).orderBy(asc(prospects.fullName)).all();
+  const list = await getDb().select({ id: prospects.id, name: prospects.fullName }).from(prospects).where(isNull(prospects.archivedAt)).orderBy(asc(prospects.fullName));
   const initial = list.find((p) => p.id === Number(prospect))?.id ?? null;
 
   return (

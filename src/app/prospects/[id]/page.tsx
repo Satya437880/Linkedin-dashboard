@@ -42,25 +42,25 @@ export default async function ProspectPage({ params, searchParams }: { params: P
   const { tab } = await searchParams;
   const b = getBundle();
   const db = b.db;
-  const p = db.select().from(prospects).where(eq(prospects.id, Number(id))).get();
+  const p = (await db.select().from(prospects).where(eq(prospects.id, Number(id))).limit(1))[0];
   if (!p) notFound();
 
-  db.update(alerts).set({ readAt: new Date() }).where(and(eq(alerts.prospectId, p.id), isNull(alerts.readAt))).run();
+  await db.update(alerts).set({ readAt: new Date() }).where(and(eq(alerts.prospectId, p.id), isNull(alerts.readAt)));
 
-  const company = p.companyId ? db.select().from(companies).where(eq(companies.id, p.companyId)).get() : null;
-  const msgs = db.select().from(messages).where(and(eq(messages.prospectId, p.id), isNull(messages.duplicateOf))).orderBy(asc(messages.sentAt)).all();
-  const conv = db.select().from(conversations).where(eq(conversations.prospectId, p.id)).limit(1).get();
-  const ptags = db.select({ name: tags.name }).from(prospectTags).innerJoin(tags, eq(prospectTags.tagId, tags.id)).where(eq(prospectTags.prospectId, p.id)).all();
-  const log = tab === "audit" ? db.select().from(activities).where(eq(activities.prospectId, p.id)).orderBy(desc(activities.occurredAt), desc(activities.id)).all() : [];
+  const company = p.companyId ? (await db.select().from(companies).where(eq(companies.id, p.companyId)).limit(1))[0] : null;
+  const msgs = await db.select().from(messages).where(and(eq(messages.prospectId, p.id), isNull(messages.duplicateOf))).orderBy(asc(messages.sentAt));
+  const conv = (await db.select().from(conversations).where(eq(conversations.prospectId, p.id)).limit(1))[0];
+  const ptags = await db.select({ name: tags.name }).from(prospectTags).innerJoin(tags, eq(prospectTags.tagId, tags.id)).where(eq(prospectTags.prospectId, p.id));
+  const log = tab === "audit" ? await db.select().from(activities).where(eq(activities.prospectId, p.id)).orderBy(desc(activities.occurredAt), desc(activities.id)) : [];
 
   const csrf = (await getSession())?.csrf ?? "";
-  const audit = tab === "audit" ? getAudit(b, p.id) : null;
+  const audit = tab === "audit" ? await getAudit(b, p.id) : null;
   const lastInbound = [...msgs].reverse().find((m) => m.direction === "inbound") ?? null;
-  const intent = latestInsight<Intent>(b, p.id, "intent");
-  const summary = latestInsight<{ text: string }>(b, p.id, "summary");
-  const next = latestInsight<NextAction>(b, p.id, "next_action");
-  const reply = latestInsight<{ text: string }>(b, p.id, "suggested_reply");
-  const followUp = latestInsight<{ text: string; followUp: number }>(b, p.id, "follow_up_draft");
+  const intent = await latestInsight<Intent>(b, p.id, "intent");
+  const summary = await latestInsight<{ text: string }>(b, p.id, "summary");
+  const next = await latestInsight<NextAction>(b, p.id, "next_action");
+  const reply = await latestInsight<{ text: string }>(b, p.id, "suggested_reply");
+  const followUp = await latestInsight<{ text: string; followUp: number }>(b, p.id, "follow_up_draft");
   const status = statusOf(p);
   const showFollowUp = status === "follow_up" && followUp;
   const draft = showFollowUp ? followUp : reply;

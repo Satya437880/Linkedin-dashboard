@@ -7,15 +7,15 @@ import { messages, prospects } from "../src/server/db/schema";
 import { markSheetDuplicates } from "../src/server/ingest/dedupe";
 
 const b = getBundle();
-const hidden = markSheetDuplicates(b);
+const hidden = (await markSheetDuplicates(b));
 console.log(`Sheet replies hidden because the real conversation has them: ${hidden}`);
 
 let categorised = 0;
-for (const p of b.db.select().from(prospects).where(and(eq(prospects.category, "unclassified"), isNull(prospects.archivedAt))).all()) {
+for (const p of (await b.db.select().from(prospects).where(and(eq(prospects.category, "unclassified"), isNull(prospects.archivedAt))))) {
   if (p.categorySource === "manual") continue;
-  const n = b.db.select({ c: sql<number>`count(*)` }).from(messages).where(and(eq(messages.prospectId, p.id), eq(messages.direction, "inbound"), isNull(messages.duplicateOf))).get()!.c;
+  const n = (await b.db.select({ c: sql<number>`count(*)` }).from(messages).where(and(eq(messages.prospectId, p.id), eq(messages.direction, "inbound"), isNull(messages.duplicateOf))).limit(1))[0].c;
   if (!n) continue;
-  analyzeProspect(b, p.id);
-  if (b.db.select().from(prospects).where(eq(prospects.id, p.id)).get()!.category !== "unclassified") categorised++;
+  (await analyzeProspect(b, p.id));
+  if ((await b.db.select().from(prospects).where(eq(prospects.id, p.id)).limit(1))[0].category !== "unclassified") categorised++;
 }
 console.log(`Prospects now categorised from their reply: ${categorised}`);

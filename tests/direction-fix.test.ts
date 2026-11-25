@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { openDb } from "../src/server/db/client";
+import { openMemoryDb } from "../src/server/db/testDb";
 import { activities, jobs, messages, prospects } from "../src/server/db/schema";
 import { ingestEvent } from "../src/server/ingest/ingestEvent";
 
@@ -11,48 +11,48 @@ const ev = (direction: "inbound" | "outbound", over: Record<string, unknown> = {
 });
 
 describe("correcting a message the extension got backwards", () => {
-  it("moves it from ours to the client's and updates the prospect", () => {
-    const b = openDb(":memory:");
-    expect(ingestEvent(b, ev("outbound")).status).toBe("processed");
-    let p = b.db.select().from(prospects).get()!;
+  it("moves it from ours to the client's and updates the prospect", async () => {
+    const b = await openMemoryDb();
+    expect((await ingestEvent(b, ev("outbound"))).status).toBe("processed");
+    let p = (await b.db.select().from(prospects).limit(1))[0];
     expect(p.lastInboundAt).toBeNull();
     expect(p.lastOutboundAt).not.toBeNull();
 
-    const r = ingestEvent(b, ev("inbound"));
+    const r = (await ingestEvent(b, ev("inbound")));
     expect(r.status).toBe("corrected");
-    const m = b.db.select().from(messages).get()!;
+    const m = (await b.db.select().from(messages).limit(1))[0];
     expect(m.direction).toBe("inbound");
     expect(m.senderName).toBe("Duane Jerore");
-    p = b.db.select().from(prospects).get()!;
+    p = (await b.db.select().from(prospects).limit(1))[0];
     expect(p.lastInboundAt).not.toBeNull();
     expect(p.lastOutboundAt).toBeNull();
-    expect(b.db.select().from(activities).where(eq(activities.action, "Message direction corrected")).all()).toHaveLength(1);
-    expect(b.db.select().from(jobs).where(eq(jobs.type, "classify_intent")).all().length).toBeGreaterThan(0);
+    expect((await b.db.select().from(activities).where(eq(activities.action, "Message direction corrected")))).toHaveLength(1);
+    expect((await b.db.select().from(jobs).where(eq(jobs.type, "classify_intent"))).length).toBeGreaterThan(0);
   });
 
-  it("is a no-op when the same direction arrives again, and when it is repeated", () => {
-    const b = openDb(":memory:");
-    ingestEvent(b, ev("outbound"));
-    expect(ingestEvent(b, ev("outbound")).status).toBe("duplicate");
-    ingestEvent(b, ev("inbound"));
-    expect(ingestEvent(b, ev("inbound")).status).toBe("duplicate");
-    expect(b.db.select().from(messages).all()).toHaveLength(1);
-    expect(b.db.select().from(activities).where(eq(activities.action, "Message direction corrected")).all()).toHaveLength(1);
+  it("is a no-op when the same direction arrives again, and when it is repeated", async () => {
+    const b = await openMemoryDb();
+    (await ingestEvent(b, ev("outbound")));
+    expect((await ingestEvent(b, ev("outbound"))).status).toBe("duplicate");
+    (await ingestEvent(b, ev("inbound")));
+    expect((await ingestEvent(b, ev("inbound"))).status).toBe("duplicate");
+    expect((await b.db.select().from(messages))).toHaveLength(1);
+    expect((await b.db.select().from(activities).where(eq(activities.action, "Message direction corrected")))).toHaveLength(1);
   });
 
-  it("keeps a category you set by hand", () => {
-    const b = openDb(":memory:");
-    ingestEvent(b, ev("outbound"));
-    b.db.update(prospects).set({ category: "hot", categorySource: "manual" }).run();
-    ingestEvent(b, ev("inbound"));
-    expect(b.db.select().from(jobs).where(eq(jobs.type, "classify_intent")).all()).toHaveLength(0);
-    expect(b.db.select().from(prospects).get()!.category).toBe("hot");
+  it("keeps a category you set by hand", async () => {
+    const b = await openMemoryDb();
+    (await ingestEvent(b, ev("outbound")));
+    (await b.db.update(prospects).set({ category: "hot", categorySource: "manual" }));
+    (await ingestEvent(b, ev("inbound")));
+    expect((await b.db.select().from(jobs).where(eq(jobs.type, "classify_intent")))).toHaveLength(0);
+    expect((await b.db.select().from(prospects).limit(1))[0].category).toBe("hot");
   });
 
-  it("only the extension can correct a stored message", () => {
-    const b = openDb(":memory:");
-    ingestEvent(b, ev("outbound"));
-    expect(ingestEvent(b, ev("inbound", { source: "manual" })).status).toBe("duplicate");
-    expect(b.db.select().from(messages).get()!.direction).toBe("outbound");
+  it("only the extension can correct a stored message", async () => {
+    const b = await openMemoryDb();
+    (await ingestEvent(b, ev("outbound")));
+    expect((await ingestEvent(b, ev("inbound", { source: "manual" }))).status).toBe("duplicate");
+    expect((await b.db.select().from(messages).limit(1))[0].direction).toBe("outbound");
   });
 });

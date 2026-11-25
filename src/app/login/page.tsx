@@ -1,13 +1,18 @@
 /* eslint-disable @next/next/no-img-element */
 import { redirect } from "next/navigation";
 import { Field } from "@/components/ui";
-import { checkPassword, startSession } from "@/server/auth/auth";
+import { checkPassword, clearLoginFailures, loginLockedMinutes, recordLoginFailure, startSession } from "@/server/auth/auth";
 
 async function login(form: FormData) {
   "use server";
   const pw = String(form.get("password") ?? "");
+  if (await loginLockedMinutes()) redirect("/login?error=locked");
   if (!pw) redirect("/login?error=empty");
-  if (!checkPassword(pw)) redirect("/login?error=wrong");
+  if (!checkPassword(pw)) {
+    await recordLoginFailure();
+    redirect("/login?error=wrong");
+  }
+  await clearLoginFailures();
   await startSession();
   redirect("/dashboard");
 }
@@ -15,6 +20,7 @@ async function login(form: FormData) {
 const MESSAGES: Record<string, string> = {
   empty: "Enter your password to continue.",
   wrong: "That password is not correct. Check it and try again.",
+  locked: "Too many wrong attempts. Wait 15 minutes and try again.",
 };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
@@ -37,7 +43,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             <button className="btn btn-primary btn-block">Sign in</button>
           </form>
         </div>
-        <p className="type-caption mt-6 text-center text-slate-brand">Runs on this computer only. Nothing is sent to the cloud.</p>
+        <p className="type-caption mt-6 text-center text-slate-brand">Private dashboard. Authorised use only.</p>
       </div>
     </main>
   );

@@ -1,4 +1,4 @@
-/* Demo mode: loads two sample prospects through the real ingestEvent() path. Safe to run repeatedly. */
+/* Demo mode: loads two sample prospects through the real (await ingestEvent()) path. Safe to run repeatedly. */
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { analyzeProspect, draftFollowUpForProspect } from "../src/server/ai/analyze";
 import { getBundle } from "../src/server/db/client";
@@ -9,7 +9,7 @@ const b = getBundle();
 const OWNER = "Maple MPSS Team";
 
 // Retire the early manual test record instead of deleting (prospects are never deleted).
-b.db.update(prospects).set({ archivedAt: new Date() }).where(and(eq(prospects.providerUserId, "jane-doe"), isNull(prospects.archivedAt))).run();
+(await b.db.update(prospects).set({ archivedAt: new Date() }).where(and(eq(prospects.providerUserId, "jane-doe"), isNull(prospects.archivedAt))));
 
 // 15 Nov 2026 is EST (UTC-5).
 const john = {
@@ -46,7 +46,7 @@ const events = [
 
 let createdJohn = false;
 for (const e of events) {
-  const r = ingestEvent(b, {
+  const r = (await ingestEvent(b, {
     source: "manual",
     eventType: "message.new",
     externalMessageId: e.id,
@@ -57,27 +57,27 @@ for (const e of events) {
     sentAt: e.sentAt,
     sender: e.sender,
     threadUrl: `https://www.linkedin.com/messaging/thread/${e.thread}/`,
-  });
+  }));
   if (r.status === "processed" && e.sender === john && e.direction === "inbound") createdJohn = true;
 }
 
-const get = (pid: string) => b.db.select().from(prospects).where(eq(prospects.providerUserId, pid)).get()!;
-const j = get(john.providerUserId);
-const m = get(michael.providerUserId);
-b.db.update(prospects).set({ owner: OWNER }).where(inArray(prospects.id, [j.id, m.id])).run();
+const get = async (pid: string) => (await b.db.select().from(prospects).where(eq(prospects.providerUserId, pid)).limit(1))[0];
+const j = await get(john.providerUserId);
+const m = await get(michael.providerUserId);
+(await b.db.update(prospects).set({ owner: OWNER }).where(inArray(prospects.id, [j.id, m.id])));
 
-if (createdJohn) analyzeProspect(b, j.id);
+if (createdJohn) (await analyzeProspect(b, j.id));
 
 // The AI jobs were run inline above; mark the queued copies done so they are not repeated.
-b.db.update(jobs).set({ status: "done" }).where(and(eq(jobs.status, "pending"), inArray(jobs.type, ["classify_intent", "summarize_conversation", "next_best_action", "draft_reply"]))).run();
+(await b.db.update(jobs).set({ status: "done" }).where(and(eq(jobs.status, "pending"), inArray(jobs.type, ["classify_intent", "summarize_conversation", "next_best_action", "draft_reply"]))));
 
 // Michael: first message 16 Nov 9:30 AM, no reply, so follow-up 1 (day 7) fell due on 23 Nov.
 const due = new Date("2026-11-23T14:30:00Z");
 if (!m.nextFollowUpAt) {
-  b.db.update(prospects).set({ nextFollowUpAt: due }).where(eq(prospects.id, m.id)).run();
-  draftFollowUpForProspect(b, m.id, 1);
-  b.db.insert(alerts).values({ prospectId: m.id, type: "follow_up_due", dedupeKey: `follow_up_due:${m.id}:2026-11-24` }).onConflictDoNothing().run();
-  b.db.insert(activities).values({ prospectId: m.id, actor: "system", action: "Follow-Up 1 Due", details: { dueAt: due.toISOString() }, dedupeKey: `followup-due:${m.id}:1`, occurredAt: due }).onConflictDoNothing().run();
+  (await b.db.update(prospects).set({ nextFollowUpAt: due }).where(eq(prospects.id, m.id)));
+  (await draftFollowUpForProspect(b, m.id, 1));
+  (await b.db.insert(alerts).values({ prospectId: m.id, type: "follow_up_due", dedupeKey: `follow_up_due:${m.id}:2026-11-24` }).onConflictDoNothing());
+  (await b.db.insert(activities).values({ prospectId: m.id, actor: "system", action: "Follow-Up 1 Due", details: { dueAt: due.toISOString() }, dedupeKey: `followup-due:${m.id}:1`, occurredAt: due }).onConflictDoNothing());
 }
 
 console.log("Demo data ready: John Smith and Michael Lee.");

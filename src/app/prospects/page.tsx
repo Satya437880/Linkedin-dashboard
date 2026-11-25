@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, desc, eq, isNull, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ilike, or, sql } from "drizzle-orm";
 import { Shell } from "@/components/Shell";
 import { IconExternal, IconSearch } from "@/components/Icons";
 import { FlowPill, SentimentPill, StatusPill, statusOf, workflowStatus } from "@/components/Pills";
@@ -30,13 +30,12 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
   const p = Math.max(1, Number(page) || 1);
   const term = `%${q}%`;
   const db = getDb();
-  const all: Row[] = db
+  const all: Row[] = await db
     .select({ p: prospects, company: companies.name })
     .from(prospects)
     .leftJoin(companies, eq(prospects.companyId, companies.id))
-    .where(and(isNull(prospects.archivedAt), q ? or(like(prospects.fullName, term), like(prospects.designation, term), like(companies.name, term), like(prospects.industry, term)) : undefined))
-    .orderBy(desc(sql`coalesce(${prospects.lastInboundAt}, ${prospects.lastActivityAt}, ${prospects.createdAt})`))
-    .all();
+    .where(and(isNull(prospects.archivedAt), q ? or(ilike(prospects.fullName, term), ilike(prospects.designation, term), ilike(companies.name, term), ilike(prospects.industry, term)) : undefined))
+    .orderBy(desc(sql`coalesce(${prospects.lastInboundAt}, ${prospects.lastActivityAt}, ${prospects.createdAt})`));
 
   const counts = Object.fromEntries(FILTERS.map((f) => [f.key, all.filter((r) => matches(f.key, r)).length]));
   const filtered = all.filter((r) => matches(active, r));
@@ -45,11 +44,14 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
 
   // Latest message each way, per row.
   const extra = new Map(
-    rows.map(({ p: r }) => {
-      const reply = db.select({ text: messages.text }).from(messages).where(and(eq(messages.prospectId, r.id), eq(messages.direction, "inbound"), isNull(messages.duplicateOf))).orderBy(desc(messages.sentAt)).limit(1).get();
-      const ours = db.select({ text: messages.text }).from(messages).where(and(eq(messages.prospectId, r.id), eq(messages.direction, "outbound"), isNull(messages.duplicateOf))).orderBy(desc(messages.sentAt)).limit(1).get();
-      return [r.id, { reply: reply?.text ?? null, ours: ours?.text ?? null }] as const;
-    }),
+    await Promise.all(
+      rows.map(async ({ p: r }) => {
+        const latest = async (direction: "inbound" | "outbound") =>
+          (await db.select({ text: messages.text }).from(messages).where(and(eq(messages.prospectId, r.id), eq(messages.direction, direction), isNull(messages.duplicateOf))).orderBy(desc(messages.sentAt)).limit(1))[0];
+        const [reply, ours] = await Promise.all([latest("inbound"), latest("outbound")]);
+        return [r.id, { reply: reply?.text ?? null, ours: ours?.text ?? null }] as const;
+      }),
+    ),
   );
 
   const href = (s: string, pg = 1) =>

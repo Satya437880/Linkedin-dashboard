@@ -15,7 +15,7 @@ async function upload(form: FormData) {
   if (file.size > 5_000_000) redirect("/import?error=big");
   let created = 0, skipped = 0;
   try {
-    ({ created, skipped } = importContactsCsv(getBundle(), await file.text()));
+    ({ created, skipped } = await importContactsCsv(getBundle(), await file.text()));
   } catch {
     redirect("/import?error=format");
   }

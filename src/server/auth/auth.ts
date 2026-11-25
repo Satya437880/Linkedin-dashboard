@@ -56,7 +56,7 @@ export async function requireSession() {
 export async function startSession() {
   const { value } = makeSessionValue();
   const jar = await cookies();
-  jar.set(COOKIE, value, { httpOnly: true, sameSite: "strict", secure: false, path: "/", maxAge: TTL_MS / 1000 });
+  jar.set(COOKIE, value, { httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", path: "/", maxAge: TTL_MS / 1000 });
 }
 
 export async function endSession() {
@@ -74,4 +74,45 @@ export async function verifyCsrf(form: FormData): Promise<void> {
   const s = await requireSession();
   const t = String(form.get("csrf") ?? "");
   if (!safeEqual(t, s.csrf)) throw new Error("Invalid CSRF token");
+}
+
+// ---- login throttling: stored in the database so it holds across serverless instances
+const MAX_FAILS = 5;
+const LOCK_MS = 15 * 60_000;
+type Attempts = { fails: number; until: number };
+
+async function store() {
+  const [{ eq }, { getDb }, { settings }] = await Promise.all([import("drizzle-orm"), import("../db/client"), import("../db/schema")]);
+  return { eq, db: getDb(), settings };
+}
+
+async function clientKey(): Promise<string> {
+  const { headers } = await import("next/headers");
+  const h = await headers();
+  const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim() || h.get("x-real-ip") || "unknown";
+  return `login:${ip}`;
+}
+
+/** Returns minutes left when this client is locked out, otherwise 0. */
+export async function loginLockedMinutes(): Promise<number> {
+  const key = await clientKey();
+  const { eq, db, settings } = await store();
+  const row = (await db.select().from(settings).where(eq(settings.key, key)).limit(1))[0];
+  const a = row?.value as Attempts | undefined;
+  return a && a.until > Date.now() ? Math.ceil((a.until - Date.now()) / 60_000) : 0;
+}
+
+export async function recordLoginFailure(): Promise<void> {
+  const key = await clientKey();
+  const { eq, db, settings } = await store();
+  const row = (await db.select().from(settings).where(eq(settings.key, key)).limit(1))[0];
+  const prev = row?.value as Attempts | undefined;
+  const fails = (prev && prev.until > Date.now() - LOCK_MS ? prev.fails : 0) + 1;
+  const value: Attempts = { fails, until: fails >= MAX_FAILS ? Date.now() + LOCK_MS : 0 };
+  await db.insert(settings).values({ key, value }).onConflictDoUpdate({ target: settings.key, set: { value } });
+}
+
+export async function clearLoginFailures(): Promise<void> {
+  const { eq, db, settings } = await store();
+  await db.delete(settings).where(eq(settings.key, await clientKey()));
 }

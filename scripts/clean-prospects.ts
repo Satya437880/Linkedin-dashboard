@@ -10,27 +10,27 @@ import { enqueueJob, parseHeadline } from "../src/server/ingest/ingestEvent";
 const b = getBundle();
 let changed = 0;
 
-for (const p of b.db.select().from(prospects).all()) {
+for (const p of (await b.db.select().from(prospects))) {
   const fullName = cleanName(p.fullName) || p.fullName;
   const headline = cleanHeadline(p.headline, p.fullName) ?? cleanHeadline(null, p.fullName);
   const { designation, companyName } = parseHeadline(headline);
 
   let companyId = p.companyId;
   if (!companyId && companyName) {
-    const ex = b.db.select().from(companies).where(sql`lower(${companies.name}) = lower(${companyName})`).get();
-    companyId = ex ? ex.id : b.db.insert(companies).values({ name: companyName }).returning({ id: companies.id }).get().id;
-    if (!ex) enqueueJob(b, "enrich_company", { companyId });
+    const ex = (await b.db.select().from(companies).where(sql`lower(${companies.name}) = lower(${companyName})`).limit(1))[0];
+    companyId = ex ? ex.id : (await b.db.insert(companies).values({ name: companyName }).returning({ id: companies.id }))[0].id;
+    if (!ex) (await enqueueJob(b, "enrich_company", { companyId }));
   }
 
   if (fullName !== p.fullName || headline !== p.headline || designation !== p.designation || companyId !== p.companyId) {
-    b.db.update(prospects).set({ fullName, headline, designation, companyId }).where(eq(prospects.id, p.id)).run();
-    b.db.update(messages).set({ senderName: fullName }).where(sql`${messages.prospectId} = ${p.id} and ${messages.direction} = 'inbound'`).run();
+    (await b.db.update(prospects).set({ fullName, headline, designation, companyId }).where(eq(prospects.id, p.id)));
+    (await b.db.update(messages).set({ senderName: fullName }).where(sql`${messages.prospectId} = ${p.id} and ${messages.direction} = 'inbound'`));
     changed++;
   }
 
   // Make sure anyone who has replied is tagged (status, sentiment, summary, next action, draft).
-  const hasReply = b.db.select({ n: sql<number>`count(*)` }).from(messages).where(sql`${messages.prospectId} = ${p.id} and ${messages.direction} = 'inbound'`).get()?.n ?? 0;
-  if (hasReply && !latestInsight(b, p.id, "intent")) analyzeProspect(b, p.id);
+  const hasReply = (await b.db.select({ n: sql<number>`count(*)` }).from(messages).where(sql`${messages.prospectId} = ${p.id} and ${messages.direction} = 'inbound'`).limit(1))[0]?.n ?? 0;
+  if (hasReply && !(await latestInsight(b, p.id, "intent"))) (await analyzeProspect(b, p.id));
 }
 
 console.log(`Tidied ${changed} prospect(s).`);

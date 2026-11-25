@@ -60,7 +60,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const label = custom ? `${from || "start"} to ${to || "today"}` : r.label;
   const db = getDb();
 
-  const all = db.select().from(prospects).where(isNull(prospects.archivedAt)).all();
+  const all = await db.select().from(prospects).where(isNull(prospects.archivedAt));
   const inRange = (d: Date | null) => !!d && (!since || d >= since) && (!until || d <= until);
 
   const contacted = all.filter((p) => p.lastOutboundAt || p.lastInboundAt).length;
@@ -98,7 +98,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const ids = replied.map((p) => p.id);
   const latestByProspect = new Map<number, typeof messages.$inferSelect>();
   if (ids.length) {
-    for (const m of db.select().from(messages).where(and(eq(messages.direction, "inbound"), isNull(messages.duplicateOf), inArray(messages.prospectId, ids))).orderBy(desc(messages.sentAt)).all()) {
+    for (const m of await db.select().from(messages).where(and(eq(messages.direction, "inbound"), isNull(messages.duplicateOf), inArray(messages.prospectId, ids))).orderBy(desc(messages.sentAt))) {
       if (!latestByProspect.has(m.prospectId)) latestByProspect.set(m.prospectId, m);
     }
   }

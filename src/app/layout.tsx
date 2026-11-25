@@ -6,7 +6,7 @@ import { getSession } from "@/server/auth/auth";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
-export const metadata: Metadata = { title: "Maple MPSS LinkedIn Dashboard" };
+export const metadata: Metadata = { title: "Maple MPSS LinkedIn Dashboard", robots: { index: false, follow: false } };
 export const viewport: Viewport = { width: "device-width", initialScale: 1 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

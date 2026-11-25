@@ -30,17 +30,18 @@ export type ApplyResult = { changed: FieldKey[]; labels: string[]; counts: Parti
  * Writes extracted details to the prospect, its company and its audit record. Idempotent: values that are
  * already stored are not rewritten, and only real changes reach the locked activity log.
  */
-export function applyAudit(
-  b: DbBundle,
+export async function applyAudit(
+  base: DbBundle,
   prospectId: number,
   data: Extracted,
   opts: { source: "sheet" | "paste"; actor: "system" | "user"; rawText?: string },
-): ApplyResult {
+): Promise<ApplyResult> {
   const changed: FieldKey[] = [];
   const counts: ApplyResult["counts"] = {};
 
-  b.sqlite.transaction(() => {
-    const p = b.db.select().from(prospects).where(eq(prospects.id, prospectId)).get();
+  await base.db.transaction(async (tx) => {
+    const b: DbBundle = { db: tx as unknown as DbBundle["db"] };
+    const p = (await b.db.select().from(prospects).where(eq(prospects.id, prospectId)).limit(1))[0];
     if (!p) throw new Error("Prospect not found");
 
     // --- prospect fields ---
@@ -53,13 +54,13 @@ export function applyAudit(
     // --- company ---
     let companyId = p.companyId;
     if (data.company) {
-      const ex = b.db.select().from(companies).where(sql`lower(${companies.name}) = lower(${data.company})`).get();
-      const id = ex ? ex.id : b.db.insert(companies).values({ name: data.company }).returning({ id: companies.id }).get().id;
-      if (!ex) enqueueJob(b, "enrich_company", { companyId: id });
+      const ex = (await b.db.select().from(companies).where(sql`lower(${companies.name}) = lower(${data.company})`).limit(1))[0];
+      const id = ex ? ex.id : (await b.db.insert(companies).values({ name: data.company }).returning({ id: companies.id }))[0].id;
+      if (!ex) await enqueueJob(b, "enrich_company", { companyId: id });
       if (id !== p.companyId) { pUpdate.companyId = id; companyId = id; changed.push("company"); }
     }
     if (companyId && (data.website || data.address || nonEmpty(data.overview) || data.industry)) {
-      const c = b.db.select().from(companies).where(eq(companies.id, companyId)).get()!;
+      const c = (await b.db.select().from(companies).where(eq(companies.id, companyId)).limit(1))[0];
       const cUpdate: Partial<typeof companies.$inferInsert> = {};
       if (data.website && data.website !== c.website) { cUpdate.website = data.website; changed.push("website"); }
       if (data.industry && data.industry !== c.industry) cUpdate.industry = data.industry;
@@ -72,12 +73,12 @@ export function applyAudit(
           changed.push("overview");
         }
       }
-      if (Object.keys(cUpdate).length) b.db.update(companies).set(cUpdate).where(eq(companies.id, companyId)).run();
+      if (Object.keys(cUpdate).length) await b.db.update(companies).set(cUpdate).where(eq(companies.id, companyId));
     }
-    if (Object.keys(pUpdate).length) b.db.update(prospects).set(pUpdate).where(eq(prospects.id, prospectId)).run();
+    if (Object.keys(pUpdate).length) await b.db.update(prospects).set(pUpdate).where(eq(prospects.id, prospectId));
 
     // --- audit record ---
-    const cur = b.db.select().from(prospectAudit).where(eq(prospectAudit.prospectId, prospectId)).get();
+    const cur = (await b.db.select().from(prospectAudit).where(eq(prospectAudit.prospectId, prospectId)).limit(1))[0];
     const aUpdate: Partial<typeof prospectAudit.$inferInsert> = {};
     const setText = (k: "contact" | "notes", col: "contactInfo" | "notes") => {
       const v = data[k];
@@ -94,8 +95,8 @@ export function applyAudit(
       aUpdate.source = opts.source;
       aUpdate.updatedAt = new Date();
       if (opts.rawText) aUpdate.rawText = opts.rawText.slice(0, 50_000);
-      if (cur) b.db.update(prospectAudit).set(aUpdate).where(eq(prospectAudit.id, cur.id)).run();
-      else b.db.insert(prospectAudit).values({ prospectId, ...aUpdate }).run();
+      if (cur) await b.db.update(prospectAudit).set(aUpdate).where(eq(prospectAudit.id, cur.id));
+      else await b.db.insert(prospectAudit).values({ prospectId, ...aUpdate });
     }
 
     for (const k of changed) {
@@ -103,25 +104,25 @@ export function applyAudit(
       if (Array.isArray(v)) counts[k] = v.length;
     }
     if (changed.length) {
-      b.db.insert(activities).values({
+      await b.db.insert(activities).values({
         prospectId,
         actor: opts.actor,
         action: opts.source === "sheet" ? "Audit details synced from sheet" : "Audit details pasted",
         details: { fields: changed.map((k) => FIELD_LABEL[k]) },
-      }).run();
+      });
     }
-  })();
+  });
 
   return { changed, labels: changed.map((k) => FIELD_LABEL[k]), counts };
 }
 
-export function getAudit(b: DbBundle, prospectId: number) {
-  return b.db.select().from(prospectAudit).where(eq(prospectAudit.prospectId, prospectId)).get() ?? null;
+export async function getAudit(b: DbBundle, prospectId: number) {
+  return (await b.db.select().from(prospectAudit).where(eq(prospectAudit.prospectId, prospectId)).limit(1))[0] ?? null;
 }
 
 /** Finds which prospect pasted text is about: by LinkedIn profile first, then by an unambiguous name. */
-export function findProspectFor(b: DbBundle, data: { person?: string | null; linkedin?: string | null }): { id: number; fullName: string } | { ambiguous: string[] } | null {
-  const all = b.db.select().from(prospects).all().filter((p) => !p.archivedAt);
+export async function findProspectFor(b: DbBundle, data: { person?: string | null; linkedin?: string | null }): Promise<{ id: number; fullName: string } | { ambiguous: string[] } | null> {
+  const all = (await b.db.select().from(prospects)).filter((p) => !p.archivedAt);
   const slug = linkedinSlug(data.linkedin);
   if (slug) {
     const hit = all.find((p) => p.providerUserId.toLowerCase() === slug || linkedinSlug(p.linkedinUrl) === slug);
@@ -140,15 +141,15 @@ export function findProspectFor(b: DbBundle, data: { person?: string | null; lin
  * Adds a prospect from pasted research when nobody in the dashboard matches. Reuses an existing record when the
  * same LinkedIn profile is already there. Returns the prospect either way.
  */
-export function createProspectFrom(b: DbBundle, data: Extracted): { id: number; fullName: string; created: boolean } {
+export async function createProspectFrom(b: DbBundle, data: Extracted): Promise<{ id: number; fullName: string; created: boolean }> {
   const name = (data.person ?? "").trim();
   if (!name) throw new Error("No name to create a prospect from");
   const slug = linkedinSlug(data.linkedin);
   const providerUserId = slug ?? `audit:${normName(name).replace(/\s+/g, "-")}`;
-  const existing = b.db.select().from(prospects).where(eq(prospects.providerUserId, providerUserId)).get();
+  const existing = (await b.db.select().from(prospects).where(eq(prospects.providerUserId, providerUserId)).limit(1))[0];
   if (existing) return { id: existing.id, fullName: existing.fullName, created: false };
 
-  const row = b.db
+  const row = (await b.db
     .insert(prospects)
     .values({
       providerUserId,
@@ -159,8 +160,7 @@ export function createProspectFrom(b: DbBundle, data: Extracted): { id: number; 
       industry: data.industry ?? null,
       owner: process.env.OWNER_NAME ?? "Maple MPSS Team",
     })
-    .returning({ id: prospects.id })
-    .get();
-  b.db.insert(activities).values({ prospectId: row.id, actor: "user", action: "Prospect created from pasted details", details: { source: "paste" }, dedupeKey: `prospect:${row.id}` }).run();
+    .returning({ id: prospects.id }))[0];
+  await b.db.insert(activities).values({ prospectId: row.id, actor: "user", action: "Prospect created from pasted details", details: { source: "paste" }, dedupeKey: `prospect:${row.id}` });
   return { id: row.id, fullName: name, created: true };
 }

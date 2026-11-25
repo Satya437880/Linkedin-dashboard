@@ -33,31 +33,32 @@ export function slugFromUrl(url: string, name: string): string {
   return (m ? m[1] : name).toLowerCase().trim();
 }
 
-export function importContactsCsv(b: DbBundle, text: string): { created: number; skipped: number } {
+export async function importContactsCsv(base: DbBundle, text: string): Promise<{ created: number; skipped: number }> {
   const rows = parseCsv(text.replace(/^﻿/, ""));
   if (rows.length < 2) return { created: 0, skipped: 0 };
   const head = rows[0].map((h) => h.trim().toLowerCase());
   const iName = find(head, "name"), iUrl = find(head, "linkedin", "url"), iCo = find(head, "company", "organization"), iDes = find(head, "designation", "title", "position");
   if (iName < 0) throw new Error("CSV needs a name column");
   let created = 0, skipped = 0;
-  b.sqlite.transaction(() => {
+  await base.db.transaction(async (tx) => {
+    const b: DbBundle = { db: tx as unknown as DbBundle["db"] };
     for (const r of rows.slice(1)) {
       const name = r[iName]?.trim();
       if (!name) continue;
       const url = iUrl >= 0 ? r[iUrl]?.trim() ?? "" : "";
       const pid = slugFromUrl(url, name);
-      if (b.db.select().from(prospects).where(eq(prospects.providerUserId, pid)).get()) { skipped++; continue; }
+      if ((await b.db.select().from(prospects).where(eq(prospects.providerUserId, pid)).limit(1)).length) { skipped++; continue; }
       const coName = iCo >= 0 ? r[iCo]?.trim() : "";
       let companyId: number | null = null;
       if (coName) {
-        const ex = b.db.select().from(companies).where(sql`lower(${companies.name}) = lower(${coName})`).get();
-        companyId = ex ? ex.id : b.db.insert(companies).values({ name: coName }).returning({ id: companies.id }).get().id;
-        if (!ex) enqueueJob(b, "enrich_company", { companyId });
+        const ex = (await b.db.select().from(companies).where(sql`lower(${companies.name}) = lower(${coName})`).limit(1))[0];
+        companyId = ex ? ex.id : (await b.db.insert(companies).values({ name: coName }).returning({ id: companies.id }))[0].id;
+        if (!ex) await enqueueJob(b, "enrich_company", { companyId });
       }
-      const p = b.db.insert(prospects).values({ providerUserId: pid, fullName: name, linkedinUrl: url || null, designation: iDes >= 0 ? r[iDes]?.trim() || null : null, companyId }).returning({ id: prospects.id }).get();
-      b.db.insert(activities).values({ prospectId: p.id, actor: "system", action: "Imported from CSV", dedupeKey: `prospect:${p.id}` }).run();
+      const p = (await b.db.insert(prospects).values({ providerUserId: pid, fullName: name, linkedinUrl: url || null, designation: iDes >= 0 ? r[iDes]?.trim() || null : null, companyId }).returning({ id: prospects.id }))[0];
+      await b.db.insert(activities).values({ prospectId: p.id, actor: "system", action: "Imported from CSV", dedupeKey: `prospect:${p.id}` });
       created++;
     }
-  })();
+  });
   return { created, skipped };
 }

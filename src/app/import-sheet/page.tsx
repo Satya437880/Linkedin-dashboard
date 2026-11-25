@@ -13,7 +13,7 @@ const SHOWN: FieldKey[] = ["person", "linkedin", "designation", "company", "over
 
 export default async function ImportSheetPage() {
   const s = await requireSession();
-  const conn = getConnection(getBundle());
+  const conn = await getConnection(getBundle());
   const view: SheetView | null = conn
     ? {
         url: conn.url,

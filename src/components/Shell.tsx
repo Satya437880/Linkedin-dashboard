@@ -11,7 +11,7 @@ import { NavLinks } from "./NavLinks";
 
 export async function Shell({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
   const session = await requireSession();
-  const last = lastCaptureAt(getBundle());
+  const last = await lastCaptureAt(getBundle());
   const stale = last ? Date.now() - last.getTime() > 2 * 86_400_000 : false;
   const fmt = (d: Date) =>
     new Intl.DateTimeFormat("en-CA", { dateStyle: "medium", timeStyle: "short", timeZone: process.env.APP_TIMEZONE ?? "America/Toronto" }).format(d);

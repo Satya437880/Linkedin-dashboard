@@ -5,7 +5,8 @@
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { draftReplyForProspect, nextActionForProspect, summarizeProspect } from "../src/server/ai/analyze";
-import { openDb, getBundle } from "../src/server/db/client";
+import { getBundle } from "../src/server/db/client";
+import { openMemoryDb } from "../src/server/db/testDb";
 import { activities, aiInsights, alerts, conversations, jobs, messages, prospects } from "../src/server/db/schema";
 import { ingestEvent } from "../src/server/ingest/ingestEvent";
 import { leadScore } from "../src/server/scoring/leadScore";
@@ -97,7 +98,7 @@ const REASON: Record<Cat, string> = {
 };
 
 const dry = process.argv.includes("--dry");
-const b = dry ? openDb(":memory:") : getBundle();
+const b = dry ? await openMemoryDb() : getBundle();
 let created = 0, existing = 0, added = 0, skipped = 0;
 
 for (const [n, dateText, platform, name, rawUrl, response, cat] of ROWS) {
@@ -105,10 +106,10 @@ for (const [n, dateText, platform, name, rawUrl, response, cat] of ROWS) {
   const url = rawUrl.split("?")[0];
   const sentAt = noonToronto(dateText);
 
-  const prior = b.db.select().from(prospects).where(eq(prospects.providerUserId, slug)).get();
-  const conv = prior ? b.db.select().from(conversations).where(eq(conversations.prospectId, prior.id)).limit(1).get() : null;
+  const prior = (await b.db.select().from(prospects).where(eq(prospects.providerUserId, slug)).limit(1))[0];
+  const conv = prior ? (await b.db.select().from(conversations).where(eq(conversations.prospectId, prior.id)).limit(1))[0] : null;
 
-  const r = ingestEvent(b, {
+  const r = (await ingestEvent(b, {
     source: "csv",
     eventType: "message.new",
     externalMessageId: `sheet-${n}`,
@@ -118,45 +119,45 @@ for (const [n, dateText, platform, name, rawUrl, response, cat] of ROWS) {
     text: response.trim(),
     sentAt,
     sender: { providerUserId: slug, fullName: name, linkedinUrl: url, headline: null },
-  });
+  }));
   if (r.status !== "processed") { skipped++; continue; }
   r.createdProspect ? created++ : existing++;
   added++;
 
   const id = r.prospectId;
-  const p = b.db.select().from(prospects).where(eq(prospects.id, id)).get()!;
-  const inboundCount = b.db.select({ c: sql<number>`count(*)` }).from(messages).where(and(eq(messages.prospectId, id), eq(messages.direction, "inbound"))).get()!.c;
+  const p = (await b.db.select().from(prospects).where(eq(prospects.id, id)).limit(1))[0];
+  const inboundCount = (await b.db.select({ c: sql<number>`count(*)` }).from(messages).where(and(eq(messages.prospectId, id), eq(messages.direction, "inbound"))).limit(1))[0].c;
 
   // Your category wins over keyword rules; record it as the intent so the AI card explains it.
-  b.db.insert(aiInsights).values({
+  (await b.db.insert(aiInsights).values({
     prospectId: id, kind: "intent", engine: "sheet", promptVersion: "sheet-v1", inputMessageId: r.messageId,
     output: { category: cat, confidence: 1, sentiment: SENTIMENT[cat], reason: REASON[cat], evidence_quote: response.trim().split(/\n/)[0].slice(0, 160), follow_up_date: null, stop_contact: false },
-  }).run();
-  b.db.update(prospects).set({
+  }));
+  (await b.db.update(prospects).set({
     category: cat,
     categorySource: "manual",
     sentiment: SENTIMENT[cat],
     leadScore: leadScore({ category: cat, designation: p.designation, lastInboundAt: p.lastInboundAt, inboundCount }, undefined, sentAt),
     ...(cat === "not_now" ? { nextFollowUpAt: new Date(sentAt.getTime() + 90 * 86_400_000) } : {}),
-  }).where(eq(prospects.id, id)).run();
-  b.db.insert(activities).values({ prospectId: id, actor: "user", action: "Category set from responses sheet", details: { category: cat, row: n }, dedupeKey: `sheet-cat:${n}`, occurredAt: sentAt }).onConflictDoNothing().run();
+  }).where(eq(prospects.id, id)));
+  (await b.db.insert(activities).values({ prospectId: id, actor: "user", action: "Category set from responses sheet", details: { category: cat, row: n }, dedupeKey: `sheet-cat:${n}`, occurredAt: sentAt }).onConflictDoNothing());
 
-  summarizeProspect(b, id);
-  nextActionForProspect(b, id);
+  (await summarizeProspect(b, id));
+  (await nextActionForProspect(b, id));
 
   // The sheet owner asked to stop: honour it.
   if (name === "Brandon Procter") {
-    b.db.update(prospects).set({ doNotContact: true, nextFollowUpAt: null }).where(eq(prospects.id, id)).run();
-    b.db.insert(activities).values({ prospectId: id, actor: "system", action: "Stop Contact Requested", details: { evidence: response.trim() }, dedupeKey: `stop:sheet-${n}`, occurredAt: sentAt }).onConflictDoNothing().run();
+    (await b.db.update(prospects).set({ doNotContact: true, nextFollowUpAt: null }).where(eq(prospects.id, id)));
+    (await b.db.insert(activities).values({ prospectId: id, actor: "system", action: "Stop Contact Requested", details: { evidence: response.trim() }, dedupeKey: `stop:sheet-${n}`, occurredAt: sentAt }).onConflictDoNothing());
   } else {
-    draftReplyForProspect(b, id);
+    (await draftReplyForProspect(b, id));
   }
 }
 
 // Historical data: no "new reply" alerts, and no queued AI jobs that would overwrite your categories.
-const ids = b.db.select({ id: prospects.id }).from(prospects).all().map((x) => x.id);
-b.db.update(alerts).set({ readAt: new Date() }).where(and(sql`${alerts.readAt} is null`, eq(alerts.type, "new_reply"), inArray(alerts.prospectId, ids))).run();
-b.db.update(jobs).set({ status: "done" }).where(and(eq(jobs.status, "pending"), inArray(jobs.type, ["classify_intent", "summarize_conversation", "next_best_action", "draft_reply"]))).run();
+const ids = (await b.db.select({ id: prospects.id }).from(prospects)).map((x) => x.id);
+(await b.db.update(alerts).set({ readAt: new Date() }).where(and(sql`${alerts.readAt} is null`, eq(alerts.type, "new_reply"), inArray(alerts.prospectId, ids))));
+(await b.db.update(jobs).set({ status: "done" }).where(and(eq(jobs.status, "pending"), inArray(jobs.type, ["classify_intent", "summarize_conversation", "next_best_action", "draft_reply"]))));
 
-const total = b.db.select({ c: sql<number>`count(*)` }).from(prospects).get()!.c;
+const total = (await b.db.select({ c: sql<number>`count(*)` }).from(prospects).limit(1))[0].c;
 console.log(`${dry ? "[DRY RUN] " : ""}rows: ${ROWS.length}, imported: ${added} (new prospects ${created}, existing ${existing}), skipped/already there: ${skipped}, prospects in DB: ${total}`);

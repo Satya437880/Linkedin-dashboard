@@ -5,15 +5,14 @@ import { alerts, prospects } from "@/server/db/schema";
 import { fmtDateTime, relTime } from "@/lib/format";
 import { IconBell } from "./Icons";
 
-export function AlertBar() {
-  const rows = getDb()
+export async function AlertBar() {
+  const rows = await getDb()
     .select({ a: alerts, name: prospects.fullName })
     .from(alerts)
     .leftJoin(prospects, eq(alerts.prospectId, prospects.id))
     .where(and(isNull(alerts.readAt), inArray(alerts.type, ["new_reply", "follow_up_due"])))
     .orderBy(desc(alerts.createdAt))
-    .limit(4)
-    .all();
+    .limit(4);
   if (rows.length === 0) return null;
   return (
     <div role="status" aria-label="Alerts" className="border-b border-line bg-rose/20">
