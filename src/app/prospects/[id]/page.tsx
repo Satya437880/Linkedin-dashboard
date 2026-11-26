@@ -6,16 +6,16 @@ import { AuditDetails } from "@/components/AuditDetails";
 import { getAudit } from "@/server/audit/apply";
 import { DraftCard } from "@/components/DraftCard";
 import { IconExternal, IconLock } from "@/components/Icons";
+import { isConnectNote } from "@/lib/clean";
 import { LinkedInThread } from "@/components/LinkedInThread";
 import { getSession } from "@/server/auth/auth";
 import { FlowPill, SentimentPill, StatusPill, statusOf, workflowStatus } from "@/components/Pills";
 import { Shell } from "@/components/Shell";
 import { StageBar } from "@/components/StageBar";
 import { fmtDate, fmtTime } from "@/lib/format";
-import { latestInsight } from "@/server/ai/analyze";
 import type { Intent, NextAction } from "@/server/ai/rules";
 import { getBundle } from "@/server/db/client";
-import { activities, alerts, companies, conversations, messages, prospects, prospectTags, tags } from "@/server/db/schema";
+import { activities, aiInsights, alerts, companies, conversations, messages, prospects, prospectTags, tags } from "@/server/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -42,25 +42,37 @@ export default async function ProspectPage({ params, searchParams }: { params: P
   const { tab } = await searchParams;
   const b = getBundle();
   const db = b.db;
-  const p = (await db.select().from(prospects).where(eq(prospects.id, Number(id))).limit(1))[0];
-  if (!p) notFound();
+  const pid = Number(id);
+  // The database is far away, so fetch together instead of one query at a time. Two groups of up to four,
+  // because the connection pool holds four (see db/client.ts).
+  const [found, msgs, [conv], ptags] = await Promise.all([
+    db.select({ p: prospects, company: companies }).from(prospects).leftJoin(companies, eq(prospects.companyId, companies.id)).where(eq(prospects.id, pid)).limit(1),
+    db.select().from(messages).where(and(eq(messages.prospectId, pid), isNull(messages.duplicateOf))).orderBy(asc(messages.sentAt)),
+    db.select().from(conversations).where(eq(conversations.prospectId, pid)).limit(1),
+    db.select({ name: tags.name }).from(prospectTags).innerJoin(tags, eq(prospectTags.tagId, tags.id)).where(eq(prospectTags.prospectId, pid)),
+  ]);
+  if (!found[0]) notFound();
+  const { p, company } = found[0];
 
-  await db.update(alerts).set({ readAt: new Date() }).where(and(eq(alerts.prospectId, p.id), isNull(alerts.readAt)));
-
-  const company = p.companyId ? (await db.select().from(companies).where(eq(companies.id, p.companyId)).limit(1))[0] : null;
-  const msgs = await db.select().from(messages).where(and(eq(messages.prospectId, p.id), isNull(messages.duplicateOf))).orderBy(asc(messages.sentAt));
-  const conv = (await db.select().from(conversations).where(eq(conversations.prospectId, p.id)).limit(1))[0];
-  const ptags = await db.select({ name: tags.name }).from(prospectTags).innerJoin(tags, eq(prospectTags.tagId, tags.id)).where(eq(prospectTags.prospectId, p.id));
-  const log = tab === "audit" ? await db.select().from(activities).where(eq(activities.prospectId, p.id)).orderBy(desc(activities.occurredAt), desc(activities.id)) : [];
+  const [insights, log, audit] = await Promise.all([
+    db.select().from(aiInsights).where(eq(aiInsights.prospectId, pid)).orderBy(desc(aiInsights.id)),
+    tab === "audit" ? db.select().from(activities).where(eq(activities.prospectId, pid)).orderBy(desc(activities.occurredAt), desc(activities.id)) : [],
+    tab === "audit" ? getAudit(b, pid) : null,
+    db.update(alerts).set({ readAt: new Date() }).where(and(eq(alerts.prospectId, pid), isNull(alerts.readAt))),
+  ]);
 
   const csrf = (await getSession())?.csrf ?? "";
-  const audit = tab === "audit" ? await getAudit(b, p.id) : null;
   const lastInbound = [...msgs].reverse().find((m) => m.direction === "inbound") ?? null;
-  const intent = await latestInsight<Intent>(b, p.id, "intent");
-  const summary = await latestInsight<{ text: string }>(b, p.id, "summary");
-  const next = await latestInsight<NextAction>(b, p.id, "next_action");
-  const reply = await latestInsight<{ text: string }>(b, p.id, "suggested_reply");
-  const followUp = await latestInsight<{ text: string; followUp: number }>(b, p.id, "follow_up_draft");
+  // Newest first, so the first row of each kind is the current one.
+  const latest = <T,>(kind: string) => {
+    const r = insights.find((x) => x.kind === kind);
+    return r ? { output: r.output as T, engine: r.engine, createdAt: r.createdAt } : null;
+  };
+  const intent = latest<Intent>("intent");
+  const summary = latest<{ text: string }>("summary");
+  const next = latest<NextAction>("next_action");
+  const reply = latest<{ text: string }>("suggested_reply");
+  const followUp = latest<{ text: string; followUp: number }>("follow_up_draft");
   const status = statusOf(p);
   const showFollowUp = status === "follow_up" && followUp;
   const draft = showFollowUp ? followUp : reply;
@@ -147,7 +159,7 @@ export default async function ProspectPage({ params, searchParams }: { params: P
                 <p className="type-caption mt-4 flex items-center gap-2 text-slate-brand"><IconLock className="h-4 w-4" /> Locked by a database trigger. Entries cannot be edited or deleted.</p>
               </div>
             ) : (
-              <LinkedInThread messages={msgs} prospectName={p.fullName} prospectPhoto={p.photoUrl} prospectHeadline={p.headline} ownerName={p.owner ?? "Maple MPSS Team"} />
+              <LinkedInThread messages={msgs.filter((m) => !isConnectNote(m.text))} prospectName={p.fullName} prospectPhoto={p.photoUrl} prospectHeadline={p.headline} ownerName={p.owner ?? "Maple MPSS Team"} />
             )}
           </div>
         </section>

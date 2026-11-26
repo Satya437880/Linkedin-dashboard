@@ -89,14 +89,14 @@ export function LinkedInThread({ messages, prospectName, prospectPhoto, prospect
     const mine = first.direction === "outbound";
     items.push(
       <div key={`g-${first.id}`} className={`flex ${mine ? "justify-start" : "justify-end"}`}>
-        <div className="flex w-full max-w-[92%] md:max-w-[80%] gap-2.5">
+        <div className={`flex max-w-[85%] gap-2.5 md:max-w-[70%] ${mine ? "" : "flex-row-reverse"}`}>
           <Avatar mine={mine} name={prospectName} photo={prospectPhoto} />
-          <div className="min-w-0 flex-1">
+          <div className={`flex min-w-0 flex-col ${mine ? "items-start" : "items-end"}`}>
             <p className="text-base leading-6">
               <span className="font-semibold text-ink">{mine ? "Maple MPSS" : prospectName}</span>
               <span className="ml-2 text-sm text-slate-brand">{timeLabel(first.sentAt)}</span>
             </p>
-            <div className="mt-0.5 space-y-2 text-base leading-relaxed text-ink">
+            <div className={`mt-1 space-y-2 rounded-2xl px-4 py-3 text-left text-base leading-relaxed text-ink ${mine ? "bg-cream" : "bg-rose/25"}`}>
               {group.map((m) => (
                 <p key={m.id} className="whitespace-pre-wrap break-words"><MessageText text={m.text} /></p>
               ))}

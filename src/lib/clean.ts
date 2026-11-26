@@ -23,3 +23,9 @@ export function cleanHeadline(headline: string | null | undefined, nameField?: s
   const rest = cleanLines(nameField).slice(1).join(" ").trim();
   return rest || null;
 }
+
+/** The stock connection note ("Hi Andre, I came across your profile ... to connect.") is not a real message, so views skip it. */
+export function isConnectNote(text: string): boolean {
+  const t = text.replace(/\s+/g, " ").trim();
+  return /^hi\b[^.!?]{0,60}?\bI came across your profile and thought it would be great to connect[.!]?$/i.test(t);
+}

@@ -60,10 +60,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const label = custom ? `${from || "start"} to ${to || "today"}` : r.label;
   const db = getDb();
 
-  const all = await db.select().from(prospects).where(isNull(prospects.archivedAt));
+  const everyone = await db.select().from(prospects).where(isNull(prospects.archivedAt));
+  // The dashboard shows only people who have replied; everyone is still counted for the response rate.
+  const all = everyone.filter((p) => p.lastInboundAt);
   const inRange = (d: Date | null) => !!d && (!since || d >= since) && (!until || d <= until);
 
-  const contacted = all.filter((p) => p.lastOutboundAt || p.lastInboundAt).length;
+  const contacted = everyone.filter((p) => p.lastOutboundAt || p.lastInboundAt).length;
   const replied = all.filter((p) => inRange(p.lastInboundAt));
   const hot = replied.filter((p) => p.category === "hot");
   const meetings = all.filter((p) => p.stage === "meeting_scheduled").length;
@@ -139,9 +141,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </section>
 
       <div className="grid grid-cols-4 gap-4 md:grid-cols-8 md:gap-6 lg:grid-cols-12">
-        <Kpi label="Prospects" value={all.length} note="All people in the dashboard" />
+        <Kpi label="Prospects" value={all.length} note="People who have replied" />
         <Kpi label="Replies" value={replied.length} note={label} />
-        <Kpi label="Response rate" value={`${rate}%`} note={`${everReplied} of ${contacted} people. Reads high: the sheet lists repliers only.`} />
+        <Kpi label="Response rate" value={`${rate}%`} note={`${everReplied} of ${contacted} people.`} />
         <Kpi label="Hot leads" value={hot.length} note={label} />
         <Kpi label="Follow-ups due" value={due.length} />
         <Kpi label="Meetings booked" value={meetings} note="Set by stage" />

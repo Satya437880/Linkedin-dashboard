@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { desc, eq, isNull, and, inArray } from "drizzle-orm";
+import { desc, eq, isNotNull, isNull, and, inArray } from "drizzle-orm";
 import { getDb } from "@/server/db/client";
 import { alerts, prospects } from "@/server/db/schema";
 import { fmtDateTime, relTime } from "@/lib/format";
@@ -10,7 +10,7 @@ export async function AlertBar() {
     .select({ a: alerts, name: prospects.fullName })
     .from(alerts)
     .leftJoin(prospects, eq(alerts.prospectId, prospects.id))
-    .where(and(isNull(alerts.readAt), inArray(alerts.type, ["new_reply", "follow_up_due"])))
+    .where(and(isNull(alerts.readAt), isNotNull(prospects.lastInboundAt), inArray(alerts.type, ["new_reply", "follow_up_due"])))
     .orderBy(desc(alerts.createdAt))
     .limit(4);
   if (rows.length === 0) return null;

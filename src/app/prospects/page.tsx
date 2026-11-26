@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { and, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { Shell } from "@/components/Shell";
 import { IconExternal, IconSearch } from "@/components/Icons";
 import { FlowPill, SentimentPill, StatusPill, statusOf, workflowStatus } from "@/components/Pills";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { isConnectNote } from "@/lib/clean";
 import { relTime } from "@/lib/format";
 import { getDb } from "@/server/db/client";
 import { companies, messages, prospects } from "@/server/db/schema";
@@ -34,7 +35,7 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
     .select({ p: prospects, company: companies.name })
     .from(prospects)
     .leftJoin(companies, eq(prospects.companyId, companies.id))
-    .where(and(isNull(prospects.archivedAt), q ? or(ilike(prospects.fullName, term), ilike(prospects.designation, term), ilike(companies.name, term), ilike(prospects.industry, term)) : undefined))
+    .where(and(isNull(prospects.archivedAt), isNotNull(prospects.lastInboundAt), q ? or(ilike(prospects.fullName, term), ilike(prospects.designation, term), ilike(companies.name, term), ilike(prospects.industry, term)) : undefined))
     .orderBy(desc(sql`coalesce(${prospects.lastInboundAt}, ${prospects.lastActivityAt}, ${prospects.createdAt})`));
 
   const counts = Object.fromEntries(FILTERS.map((f) => [f.key, all.filter((r) => matches(f.key, r)).length]));
@@ -52,6 +53,7 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
       .where(and(inArray(messages.prospectId, ids), isNull(messages.duplicateOf)))
       .orderBy(desc(messages.sentAt));
     for (const m of recent) {
+      if (isConnectNote(m.text)) continue;
       const k = `${m.prospectId}:${m.direction}`;
       if (!latest.has(k)) latest.set(k, m.text);
     }
@@ -61,7 +63,7 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
   const href = (s: string, pg = 1) =>
     `/prospects?${new URLSearchParams({ ...(q ? { q } : {}), ...(s !== "all" ? { status: s } : {}), ...(pg > 1 ? { page: String(pg) } : {}) })}`;
   const th = "whitespace-nowrap px-1.5 py-3 text-left text-sm font-semibold text-slate-brand";
-  const td = "px-1.5 py-3 align-top text-sm";
+  const td = "h-16 px-1.5 py-3 align-top text-sm"; // h-16 fits two lines, so every row is the same height
   const hasPrev = p > 1;
   const hasNext = filtered.length > p * PAGE;
 
@@ -93,7 +95,7 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
       {rows.length === 0 ? (
         <div className="card">
           <EmptyState
-            title={all.length === 0 ? "No prospects yet" : "No prospects match"}
+            title={all.length === 0 ? "No replies yet" : "No prospects match"}
             body={all.length === 0 ? "Open a LinkedIn conversation with the extension on, paste a reply, or import your CSV sheet." : "Try a different filter or clear the search."}
             action={all.length === 0
               ? <Link href="/paste" className="btn btn-primary">Paste a reply</Link>
@@ -128,7 +130,7 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
                     return (
                       <tr key={r.id} className="hover:bg-cream/50">
                         <td className={`${td} tabular-nums text-slate-brand`}>{start + i + 1}</td>
-                        <td className={td}><Link href={`/prospects/${r.id}`} className="font-semibold text-wine underline-offset-2 hover:underline">{r.fullName}</Link></td>
+                        <td className={td}><Link href={`/prospects/${r.id}`} title={r.fullName} className="block max-w-[6.75rem] truncate 2xl:max-w-[14rem] font-semibold text-wine underline-offset-2 hover:underline">{r.fullName}</Link></td>
                         <td className={td}>
                           {r.linkedinUrl ? <a href={r.linkedinUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-wine underline-offset-2 hover:underline">Profile<IconExternal className="h-4 w-4" /><span className="sr-only"> (opens LinkedIn)</span></a> : "-"}
                         </td>
@@ -139,8 +141,8 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
                           {x.reply ? <span className="line-clamp-2" title={x.reply}>{x.reply}</span> : <span className="text-slate-brand">No reply yet</span>}
                         </td>
                         <td className={td}><StatusPill status={r.category} /></td>
-                        <td className={td}>{company ?? "-"}</td>
-                        <td className={`${td} max-w-[12rem]`}>{r.designation ?? "-"}</td>
+                        <td className={`${td} max-w-[10rem]`}><span className="line-clamp-2" title={company ?? undefined}>{company ?? "-"}</span></td>
+                        <td className={`${td} max-w-[12rem]`}><span className="line-clamp-2" title={r.designation ?? undefined}>{r.designation ?? "-"}</span></td>
                         <td className={td}><FlowPill flow={workflowStatus(r)} /></td>
                         <td className={`${td} whitespace-nowrap`}>{relTime(r.lastInboundAt)}</td>
                         <td className={td}>{r.sentiment ? <SentimentPill sentiment={r.sentiment} /> : "-"}</td>
