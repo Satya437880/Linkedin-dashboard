@@ -16,11 +16,11 @@ type Rule = { category: Intent["category"]; patterns: RegExp[]; stop?: boolean }
 // Order matters: first matching group wins.
 const RULES: Rule[] = [
   { category: "negative", stop: true, patterns: [/remove me/i, /stop messaging/i, /stop contacting/i, /unsubscribe/i, /do not contact/i, /don'?t contact/i] },
-  { category: "negative", patterns: [/already have a supplier/i, /not interested/i, /no longer interested/i] },
-  { category: "not_now", patterns: [/\bno,? thank(?:s| you)\b/i, /\bnot at this time\b/i, /\b(?:we'?re|we are|i am|i'm) (?:ok|okay|fine|good|all set|set) for now\b/i, /next quarter/i, /in (\d+|three|two|six) months?/i, /future requirement/i, /later this year/i, /not right now/i, /next year/i] },
-  { category: "cold", patterns: [/not currently interested/i, /no active projects?/i, /nothing at the moment/i] },
-  { category: "hot", patterns: [/quotation/i, /\bquote\b/i, /pricing/i, /\bprice\b/i, /\bsamples?\b/i, /looking for a supplier/i, /project discussion/i] },
-  { category: "warm", patterns: [/send (me )?(some )?information/i, /brochure/i, /capabilit/i, /more details?/i] },
+  { category: "negative", patterns: [/already have a supplier/i, /not interested/i, /no longer interested/i, /\b(?:don'?t|do not) (?:use|need|require|buy) (?:any )?(?:machined|machining|\w+ parts)/i, /\bno needs? for\b/i] },
+  { category: "not_now", patterns: [/\bno,? thank(?:s| you)\b/i, /\bnot at this time\b/i, /\b(?:we'?re|we are|i am|i'm) (?:ok|okay|fine|good|all set|set) for now\b/i, /next quarter/i, /in (\d+|three|two|six) months?/i, /future requirement/i, /later this year/i, /not right now/i, /next year/i, /\bpretty happy with\b/i, /\bany ?time soon\b/i, /\bpass for now\b/i, /\b(?:ok|okay|good|fine|all set) for now\b/i] },
+  { category: "cold", patterns: [/not currently interested/i, /no active projects?/i, /nothing at the moment/i, /\b(?:i will|i'll|will) (?:let you know|keep (?:you|this|it|maple mpss) in mind)\b/i] },
+  { category: "hot", patterns: [/quotation/i, /\bquote\b/i, /pricing/i, /\bprice\b/i, /\bsamples?\b/i, /looking for a supplier/i, /project discussion/i, /\binterested in (?:speaking|talking|meeting|a (?:quick )?(?:chat|call))\b/i, /\bwhat times?\b.*\bavailable\b/i, /\byour availability\b/i, /let'?s (?:connect|chat|talk|meet)\b/i, /\bschedule a\b.*\b(?:chat|call|meeting)\b/i, /\bsend me an email\b/i, /\bdxf\b/i] },
+  { category: "warm", patterns: [/send (me )?(some )?information/i, /brochure/i, /capabilit/i, /more details?/i, /\bare you a manufacturer\b/i, /\b(?:looking forward to|open to) learning more\b/i, /\btell me more\b/i] },
 ];
 
 const REASONS: Record<Intent["category"], string> = {
@@ -59,7 +59,8 @@ function notNowDate(text: string, now: Date): Date {
 }
 
 /** Keyword rules. Returns null when nothing matches (category stays unclassified). */
-export function classifyByRules(text: string, now = new Date()): Intent | null {
+export function classifyByRules(raw: string, now = new Date()): Intent | null {
+  const text = raw.replace(/’/g, "'"); // phones type curly apostrophes
   for (const rule of RULES) {
     for (const p of rule.patterns) {
       const m = text.match(p);

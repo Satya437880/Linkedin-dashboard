@@ -14,9 +14,33 @@ export type IngestResult =
 /** "Plant Manager at Acme Corp" -> { designation, companyName }. Returns nulls when no clear split. */
 export function parseHeadline(headline?: string | null): { designation: string | null; companyName: string | null } {
   if (!headline) return { designation: null, companyName: null };
-  const m = headline.match(/^(.*?)\s+(?:at|@)\s+(.+)$/i);
+  const m = headline.match(/^(.*?)\s+(?:at\s+|@\s*)(.+)$/i);
   if (!m) return { designation: headline.trim() || null, companyName: null };
-  return { designation: m[1].trim() || null, companyName: m[2].trim() || null };
+  // Headlines often carry more after the company ("... @ Shred-Tech | Product Design"); keep only the name.
+  const companyName = m[2].split(/\s*[|•·;]\s*|\s+[-–—]\s+/)[0].trim();
+  return { designation: m[1].trim() || null, companyName: companyName || null };
+}
+
+async function companyIdFor(b: DbBundle, name: string): Promise<number> {
+  const existing = first(await b.db.select().from(companies).where(sql`lower(${companies.name}) = lower(${name})`).limit(1));
+  if (existing) return existing.id;
+  const id = (await b.db.insert(companies).values({ name }).returning({ id: companies.id }))[0].id;
+  await enqueueJob(b, "enrich_company", { companyId: id });
+  return id;
+}
+
+/** Fills a missing headline, designation or company from a later capture. Never overwrites what is already there. */
+export async function fillDetails(b: DbBundle, p: typeof prospects.$inferSelect, headline: string | null) {
+  // LinkedIn sometimes yields just the person's name where the headline should be.
+  if (!headline || p.fullName.toLowerCase().split(/\s+/).includes(headline.toLowerCase()) || headline.toLowerCase() === p.fullName.toLowerCase()) return null;
+  const parsed = parseHeadline(headline);
+  const set: Partial<typeof prospects.$inferInsert> = {};
+  if (!p.headline) set.headline = headline;
+  if (!p.designation && parsed.designation) set.designation = parsed.designation;
+  if (!p.companyId && parsed.companyName) set.companyId = await companyIdFor(b, parsed.companyName);
+  if (Object.keys(set).length === 0) return null;
+  await b.db.update(prospects).set(set).where(eq(prospects.id, p.id));
+  return set;
 }
 
 export async function enqueueJob(b: DbBundle, type: string, payload: unknown, runAfter = new Date()) {
@@ -43,7 +67,12 @@ export async function ingestEvent(base: DbBundle, input: unknown): Promise<Inges
       .values({ source: ev.source, externalMessageId: ev.externalMessageId, eventType: ev.eventType, payload: ev.raw ?? ev })
       .onConflictDoNothing()
       .returning({ id: rawEvents.id });
-    if (inserted.length === 0) return { status: "duplicate" };
+    if (inserted.length === 0) {
+      // Reopening a conversation re-sends known messages; use them to fill in details missed the first time.
+      const known = first(await db.select().from(prospects).where(eq(prospects.providerUserId, ev.sender.providerUserId)).limit(1));
+      if (known) await fillDetails(b, known, cleanHeadline(ev.sender.headline, ev.sender.fullName));
+      return { status: "duplicate" };
+    }
 
     if (ev.eventType !== "message.new") {
       return { status: "stored_only", reason: `${ev.eventType} is processed in a later phase` };
@@ -59,18 +88,7 @@ export async function ingestEvent(base: DbBundle, input: unknown): Promise<Inges
     let prospect = first(await db.select().from(prospects).where(eq(prospects.providerUserId, ev.sender.providerUserId)).limit(1));
     let createdProspect = false;
     if (!prospect) {
-      let companyId: number | null = null;
-      if (companyName) {
-        const existing = first(
-          await db
-            .select()
-            .from(companies)
-            .where(sql`lower(${companies.name}) = lower(${companyName})`)
-            .limit(1),
-        );
-        companyId = existing ? existing.id : (await db.insert(companies).values({ name: companyName }).returning({ id: companies.id }))[0].id;
-        if (!existing) await enqueueJob(b, "enrich_company", { companyId });
-      }
+      const companyId = companyName ? await companyIdFor(b, companyName) : null;
       prospect = (await db
         .insert(prospects)
         .values({
@@ -89,6 +107,8 @@ export async function ingestEvent(base: DbBundle, input: unknown): Promise<Inges
         .insert(activities)
         .values({ prospectId: prospect.id, actor: "system", action: companyId ? "Prospect and company created" : "Prospect created", details: { source: ev.source }, dedupeKey: `prospect:${prospect.id}`, occurredAt: now });
     }
+
+    if (!createdProspect) await fillDetails(b, prospect, headline);
 
     // 2. conversation
     let conv = first(await db.select().from(conversations).where(eq(conversations.externalThreadId, ev.externalThreadId)).limit(1));

@@ -33,11 +33,12 @@ async function lastInbound(b: DbBundle, prospectId: number) {
 
 export async function classifyProspect(b: DbBundle, prospectId: number) {
   const p = (await b.db.select().from(prospects).where(eq(prospects.id, prospectId)).limit(1))[0];
-  const msg = await lastInbound(b, prospectId);
-  if (!p || !msg) return;
+  const inbound = await b.db.select().from(messages).where(and(eq(messages.prospectId, prospectId), eq(messages.direction, "inbound"))).orderBy(desc(messages.sentAt));
+  if (!p || !inbound.length || p.categorySource === "manual") return; // a category set by hand stays
+  // The newest reply that says something wins: "Thanks!" after "not right now" must not reset the category.
+  const msg = inbound.find((m) => classifyByRules(m.text, m.sentAt)) ?? inbound[0];
   const intent = classifyByRules(msg.text, msg.sentAt);
-  const inboundCount =
-    (await b.db.select({ n: count() }).from(messages).where(and(eq(messages.prospectId, prospectId), eq(messages.direction, "inbound"))))[0]?.n ?? 0;
+  const inboundCount = inbound.length;
   const category = intent?.category ?? "unclassified";
   await b.db
     .update(prospects)
