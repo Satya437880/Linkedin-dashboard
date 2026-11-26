@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
 import { analyzeAction, type PasteAuditState } from "@/app/prospects/[id]/audit-actions";
 import { IconAlert, IconCheck } from "./Icons";
 import { Field } from "./ui";
@@ -14,14 +14,15 @@ export function PasteAuditCard({ csrf, prospects, initialId }: { csrf: string; p
   const [who, setWho] = useState(initialId ? String(initialId) : "auto");
 
   // Clear the box after a successful import. Keep it when the user still has to confirm or fix something.
-  useEffect(() => { if (state.ok) setText(""); }, [state]);
+  const [seen, setSeen] = useState(state);
+  if (state !== seen) {
+    setSeen(state);
+    if (state.ok) setText("");
+  }
 
   return (
-    <section aria-label="Paste Audit Details" className="card p-4 md:p-6">
-      <h2 className="type-h4"><span aria-hidden="true">📝 </span>Paste Audit Details</h2>
-      <p className="type-body mt-1 text-slate-brand">Paste raw prospect research, LinkedIn information, audit findings, meeting notes, or AI-generated reports.</p>
-
-      <form action={action} className="mt-5 flex flex-col gap-5" noValidate>
+    <section aria-label="Auto-fill from audit" className="card p-4 md:p-6">
+      <form action={action} className="flex flex-col gap-5" noValidate>
         <input type="hidden" name="csrf" value={csrf} />
 
         <Field id="audit-prospect" label="Prospect" hint="Leave on Detect and the person is found from the Person or LinkedIn line in your text.">

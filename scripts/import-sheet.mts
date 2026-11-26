@@ -121,7 +121,8 @@ for (const [n, dateText, platform, name, rawUrl, response, cat] of ROWS) {
     sender: { providerUserId: slug, fullName: name, linkedinUrl: url, headline: null },
   }));
   if (r.status !== "processed") { skipped++; continue; }
-  r.createdProspect ? created++ : existing++;
+  if (r.createdProspect) created++;
+  else existing++;
   added++;
 
   const id = r.prospectId;

@@ -28,7 +28,7 @@ export default async function PasteAuditPage({ searchParams }: { searchParams: P
 
   return (
     <Shell>
-      <PageHeader title="Paste Audit Details" description="Paste research or notes and the prospect's page is filled in for you." />
+      <PageHeader title="Auto-fill from audit" description="Paste research or notes and the prospect's page is filled in for you." />
       <div className="grid grid-cols-4 gap-4 md:grid-cols-8 md:gap-6 lg:grid-cols-12">
         <div className="col-span-4 min-w-0 md:col-span-8 lg:col-span-7">
           <PasteAuditCard csrf={s.csrf} prospects={list} initialId={initial} />

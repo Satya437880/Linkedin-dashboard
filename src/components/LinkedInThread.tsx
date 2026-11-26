@@ -7,7 +7,6 @@ type Props = {
   prospectName: string;
   prospectPhoto: string | null;
   prospectHeadline: string | null;
-  ownerName: string;
 };
 
 const SAME_SENDER_GAP_MS = 5 * 60 * 1000;
@@ -61,7 +60,7 @@ function Avatar({ mine, name, photo }: { mine: boolean; name: string; photo: str
  * Same structure as LinkedIn messaging: a name and headline header, centred day labels, and per message an
  * avatar, bold name, time and plain text. Our messages sit on the left and the client's replies on the right.
  */
-export function LinkedInThread({ messages, prospectName, prospectPhoto, prospectHeadline, ownerName }: Props) {
+export function LinkedInThread({ messages, prospectName, prospectPhoto, prospectHeadline }: Props) {
   const items: React.ReactNode[] = [];
   let lastDay = "";
   let i = 0;

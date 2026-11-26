@@ -1,7 +1,8 @@
-import path from "node:path";
 import { count } from "drizzle-orm";
+import { AccountCards } from "@/components/AccountCards";
 import { Shell } from "@/components/Shell";
 import { PageHeader } from "@/components/ui";
+import { requireSession } from "@/server/auth/auth";
 import { getBundle } from "@/server/db/client";
 import { lastCaptureAt } from "@/server/ingest/ingestEvent";
 import { jobs, messages, prospects } from "@/server/db/schema";
@@ -44,7 +45,9 @@ const Badge = ({ ok, children }: { ok: boolean; children: React.ReactNode }) => 
   <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${ok ? "bg-success-bg text-success" : "bg-warning-bg text-warning"}`}>{children}</span>
 );
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ account?: string }> }) {
+  const session = await requireSession();
+  const { account } = await searchParams;
   const b = getBundle();
   const last = await lastCaptureAt(b);
   const nP = (await b.db.select({ n: count() }).from(prospects))[0]?.n ?? 0;
@@ -58,6 +61,8 @@ export default async function SettingsPage() {
     <Shell>
       <PageHeader title="Settings" description="Connection details, local AI and data on this computer." />
       <div className="grid grid-cols-4 gap-4 md:grid-cols-8 md:gap-6 lg:grid-cols-12">
+        <AccountCards session={session} status={account} />
+
         <Card title="Chrome extension" badge={<Badge ok={!!last}>{last ? "Capturing" : "No capture yet"}</Badge>} className="col-span-4 md:col-span-8 lg:col-span-6">
           <dl className="divide-y divide-line">
             <Row k="App URL" v={<span className="font-mono text-sm">http://localhost:3000</span>} />

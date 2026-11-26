@@ -31,7 +31,7 @@ export default async function ImportSheetPage() {
 
   return (
     <Shell>
-      <PageHeader title="Import from Sheet" description="Connect a sheet once, then refresh it any time. Matching prospects are updated automatically." />
+      <PageHeader title="Auto Import" description="Connect a sheet once, then refresh it any time. Matching prospects are updated automatically." />
       <div className="grid grid-cols-4 gap-4 md:grid-cols-8 md:gap-6 lg:grid-cols-12">
         <div className="col-span-4 min-w-0 md:col-span-8 lg:col-span-7">
           <SheetCard csrf={s.csrf} conn={view} />

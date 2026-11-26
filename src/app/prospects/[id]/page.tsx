@@ -8,7 +8,7 @@ import { DraftCard } from "@/components/DraftCard";
 import { IconExternal, IconLock } from "@/components/Icons";
 import { isConnectNote } from "@/lib/clean";
 import { LinkedInThread } from "@/components/LinkedInThread";
-import { getSession } from "@/server/auth/auth";
+import { requireSession } from "@/server/auth/auth";
 import { FlowPill, SentimentPill, StatusPill, statusOf, workflowStatus } from "@/components/Pills";
 import { Shell } from "@/components/Shell";
 import { StageBar } from "@/components/StageBar";
@@ -38,6 +38,7 @@ function Block({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export default async function ProspectPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string }> }) {
+  const { csrf } = await requireSession();
   const { id } = await params;
   const { tab } = await searchParams;
   const b = getBundle();
@@ -61,7 +62,6 @@ export default async function ProspectPage({ params, searchParams }: { params: P
     db.update(alerts).set({ readAt: new Date() }).where(and(eq(alerts.prospectId, pid), isNull(alerts.readAt))),
   ]);
 
-  const csrf = (await getSession())?.csrf ?? "";
   const lastInbound = [...msgs].reverse().find((m) => m.direction === "inbound") ?? null;
   // Newest first, so the first row of each kind is the current one.
   const latest = <T,>(kind: string) => {
@@ -126,8 +126,8 @@ export default async function ProspectPage({ params, searchParams }: { params: P
                 <div className="mb-6 flex flex-col gap-3 rounded-2xl bg-rose/20 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <p className="type-body text-wine-deep">Fill this page automatically instead of typing.</p>
                   <div className="flex flex-wrap gap-2">
-                    <Link href={`/paste-audit?prospect=${p.id}`} className="btn btn-primary btn-sm">Paste Audit Details</Link>
-                    <Link href="/import-sheet" className="btn btn-secondary btn-sm">Import from Sheet</Link>
+                    <Link href={`/paste-audit?prospect=${p.id}`} className="btn btn-primary btn-sm">Auto-fill from audit</Link>
+                    <Link href="/import-sheet" className="btn btn-secondary btn-sm">Auto Import</Link>
                   </div>
                 </div>
                 <AuditDetails
@@ -159,7 +159,7 @@ export default async function ProspectPage({ params, searchParams }: { params: P
                 <p className="type-caption mt-4 flex items-center gap-2 text-slate-brand"><IconLock className="h-4 w-4" /> Locked by a database trigger. Entries cannot be edited or deleted.</p>
               </div>
             ) : (
-              <LinkedInThread messages={msgs.filter((m) => !isConnectNote(m.text))} prospectName={p.fullName} prospectPhoto={p.photoUrl} prospectHeadline={p.headline} ownerName={p.owner ?? "Maple MPSS Team"} />
+              <LinkedInThread messages={msgs.filter((m) => !isConnectNote(m.text))} prospectName={p.fullName} prospectPhoto={p.photoUrl} prospectHeadline={p.headline} />
             )}
           </div>
         </section>

@@ -29,11 +29,8 @@ export function SheetCard({ csrf, conn }: { csrf: string; conn: SheetView | null
   const synced = !!conn?.lastSyncText;
 
   return (
-    <section aria-label="Import from Sheet" className="card p-4 md:p-6">
-      <h2 className="type-h4"><span aria-hidden="true">📊 </span>Import from Sheet</h2>
-      <p className="type-body mt-1 text-slate-brand">Connect a Google Sheet and sync prospect and audit information automatically.</p>
-
-      <form action={action} className="mt-5 flex flex-col gap-5" noValidate>
+    <section aria-label="Auto Import" className="card p-4 md:p-6">
+      <form action={action} className="flex flex-col gap-5" noValidate>
         <input type="hidden" name="csrf" value={csrf} />
 
         {showForm ? (
@@ -118,7 +115,7 @@ export function SheetCard({ csrf, conn }: { csrf: string; conn: SheetView | null
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>Google Sheets with sharing set to <strong>Anyone with the link</strong> (Viewer). The tab in the link is the one that is read.</li>
           <li>A sheet published to the web as CSV, or any direct https link to a CSV file.</li>
-          <li>Private sheets and pages that need a login cannot be read. Download the sheet as CSV or use Paste Audit Details instead.</li>
+          <li>Private sheets and pages that need a login cannot be read. Download the sheet as CSV or use Auto-fill from audit instead.</li>
         </ul>
       </details>
     </section>

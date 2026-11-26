@@ -6,6 +6,7 @@ import { FlowPill, SentimentPill, StatusPill, statusOf, workflowStatus } from "@
 import { EmptyState, PageHeader } from "@/components/ui";
 import { isConnectNote } from "@/lib/clean";
 import { relTime } from "@/lib/format";
+import { requireSession } from "@/server/auth/auth";
 import { getDb } from "@/server/db/client";
 import { companies, messages, prospects } from "@/server/db/schema";
 
@@ -26,6 +27,7 @@ type Row = { p: typeof prospects.$inferSelect; company: string | null };
 const matches = (key: string, r: Row) => key === "all" || statusOf(r.p) === key;
 
 export default async function ProspectsPage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; status?: string }> }) {
+  await requireSession();
   const { q = "", page = "1", status = "all" } = await searchParams;
   const active = FILTERS.some((f) => f.key === status) ? status : "all";
   const p = Math.max(1, Number(page) || 1);
@@ -62,8 +64,8 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
 
   const href = (s: string, pg = 1) =>
     `/prospects?${new URLSearchParams({ ...(q ? { q } : {}), ...(s !== "all" ? { status: s } : {}), ...(pg > 1 ? { page: String(pg) } : {}) })}`;
-  const th = "whitespace-nowrap px-1.5 py-3 text-left text-sm font-semibold text-slate-brand";
-  const td = "h-16 px-1.5 py-3 align-top text-sm"; // h-16 fits two lines, so every row is the same height
+  const th = "px-1 py-3 text-left align-bottom text-sm font-semibold text-slate-brand";
+  const td = "h-16 break-words px-1 py-3 align-top text-sm"; // h-16 fits two lines, so every row is the same height
   const hasPrev = p > 1;
   const hasNext = filtered.length > p * PAGE;
 
@@ -104,11 +106,15 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
         </div>
       ) : (
         <>
-          {/* Desktop: full table */}
-          <div className="card hidden overflow-hidden xl:block">
+          {/* Full table; scrolls sideways when the window is narrow */}
+          <div className="card hidden overflow-hidden md:block">
             <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Prospects table">
-              <table className="w-full table-auto border-collapse">
+              {/* Fixed column shares so all 11 columns fit the window; long labels wrap inside their pill */}
+              <table className="w-full min-w-[56rem] table-fixed border-collapse [&_.rounded-full]:whitespace-normal [&_.rounded-full]:px-2 [&_.rounded-full]:text-center [&_.rounded-full]:leading-tight">
                 <caption className="sr-only">Prospects</caption>
+                <colgroup>
+                  {[3.5, 11, 7, 12.25, 12.25, 11, 10, 10, 9.5, 7, 8.5].map((w, i) => <col key={i} style={{ width: `${w / 1.02}%` }} />)}
+                </colgroup>
                 <thead className="border-b border-line bg-cream/60">
                   <tr>
                     <th scope="col" className={th}>Sl no</th>
@@ -130,21 +136,21 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
                     return (
                       <tr key={r.id} className="hover:bg-cream/50">
                         <td className={`${td} tabular-nums text-slate-brand`}>{start + i + 1}</td>
-                        <td className={td}><Link href={`/prospects/${r.id}`} title={r.fullName} className="block max-w-[6.75rem] truncate 2xl:max-w-[14rem] font-semibold text-wine underline-offset-2 hover:underline">{r.fullName}</Link></td>
+                        <td className={td}><Link href={`/prospects/${r.id}`} title={r.fullName} className="block truncate font-semibold text-wine underline-offset-2 hover:underline">{r.fullName}</Link></td>
                         <td className={td}>
                           {r.linkedinUrl ? <a href={r.linkedinUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-wine underline-offset-2 hover:underline">Profile<IconExternal className="h-4 w-4" /><span className="sr-only"> (opens LinkedIn)</span></a> : "-"}
                         </td>
-                        <td className={`${td} max-w-[12rem]`}>
+                        <td className={td}>
                           {x.ours ? <span className="line-clamp-2" title={x.ours}>{x.ours}</span> : <span className="text-slate-brand">Not captured</span>}
                         </td>
-                        <td className={`${td} max-w-[12rem]`}>
+                        <td className={td}>
                           {x.reply ? <span className="line-clamp-2" title={x.reply}>{x.reply}</span> : <span className="text-slate-brand">No reply yet</span>}
                         </td>
                         <td className={td}><StatusPill status={r.category} /></td>
-                        <td className={`${td} max-w-[10rem]`}><span className="line-clamp-2" title={company ?? undefined}>{company ?? "-"}</span></td>
-                        <td className={`${td} max-w-[12rem]`}><span className="line-clamp-2" title={r.designation ?? undefined}>{r.designation ?? "-"}</span></td>
+                        <td className={td}><span className="line-clamp-2" title={company ?? undefined}>{company ?? "-"}</span></td>
+                        <td className={td}><span className="line-clamp-2" title={r.designation ?? undefined}>{r.designation ?? "-"}</span></td>
                         <td className={td}><FlowPill flow={workflowStatus(r)} /></td>
-                        <td className={`${td} whitespace-nowrap`}>{relTime(r.lastInboundAt)}</td>
+                        <td className={td}>{relTime(r.lastInboundAt)}</td>
                         <td className={td}>{r.sentiment ? <SentimentPill sentiment={r.sentiment} /> : "-"}</td>
                       </tr>
                     );
@@ -154,8 +160,8 @@ export default async function ProspectsPage({ searchParams }: { searchParams: Pr
             </div>
           </div>
 
-          {/* Phone and tablet: one card per person */}
-          <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:hidden">
+          {/* Phone: one card per person */}
+          <ul className="grid grid-cols-1 gap-4 md:hidden">
             {rows.map(({ p: r, company }, i) => {
               const x = extra.get(r.id)!;
               return (

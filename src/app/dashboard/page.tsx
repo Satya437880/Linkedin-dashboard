@@ -4,6 +4,7 @@ import { Shell } from "@/components/Shell";
 import { StatusPill, statusOf } from "@/components/Pills";
 import { EmptyState, PageHeader } from "@/components/ui";
 import { fmtDateTime, relTime, startOfDay } from "@/lib/format";
+import { requireSession } from "@/server/auth/auth";
 import { getDb } from "@/server/db/client";
 import { messages, prospects } from "@/server/db/schema";
 
@@ -49,13 +50,17 @@ function Panel({ title, sub, className = "", children }: { title: string; sub?: 
   );
 }
 
+/** The start of a "last N days" range, counted back from this request. */
+const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000);
+
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ range?: string; from?: string; to?: string }> }) {
+  await requireSession();
   const { range = "30", from, to } = await searchParams;
   const fromDay = startOfDay(from);
   const toDay = startOfDay(to);
   const custom = !!(fromDay || toDay);
   const r = RANGES.find((x) => x.key === range) ?? RANGES[1];
-  const since = custom ? fromDay : r.days ? new Date(Date.now() - r.days * 86_400_000) : null;
+  const since = custom ? fromDay : r.days ? daysAgo(r.days) : null;
   const until = custom && toDay ? new Date(toDay.getTime() + 86_400_000 - 1) : null; // end of the chosen day
   const label = custom ? `${from || "start"} to ${to || "today"}` : r.label;
   const db = getDb();

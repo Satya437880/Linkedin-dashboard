@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import type { DbBundle } from "../db/client";
 import { activities, aiInsights, companies, messages, prospects } from "../db/schema";
 import { leadScore } from "../scoring/leadScore";

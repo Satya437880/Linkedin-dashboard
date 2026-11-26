@@ -29,6 +29,7 @@ Change its server URL from `http://127.0.0.1:3000` to your Vercel URL and keep t
 ## What changed from the local version
 - SQLite file -> Supabase Postgres (async queries, Postgres triggers keep the append-only audit log).
 - The in-process job timer is gone. Jobs run right after each ingest, and daily via Vercel Cron.
-- **There is no sign-in.** Anyone with the link can open and edit the dashboard. Only the extension's ingest
-  endpoint (`INGEST_TOKEN`) and the cron endpoint (`CRON_SECRET`) are protected. Search engines are told not to index it.
+- **Sign-in is required** (email and password). New sign-ups wait until an admin approves them in Settings.
+  Create or reset an admin with `scripts/set-password.mts`. The extension's ingest endpoint uses `INGEST_TOKEN`
+  and the cron endpoint uses `CRON_SECRET`. Search engines are told not to index the site.
 - Ollama is optional and unreachable from Vercel; pasted-text extraction falls back to the built-in rules.
