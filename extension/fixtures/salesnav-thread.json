@@ -1,0 +1,16 @@
+{
+  "threads": [
+    {
+      "id": "SNTHREAD9",
+      "viewerUrn": "urn:li:fs_salesProfile:(ACwAAVIEWER,NAME_SEARCH,abc)",
+      "participantsResolutionResults": {
+        "urn:li:fs_salesProfile:(ACwAAVIEWER,NAME_SEARCH,abc)": { "fullName": "Me User" },
+        "urn:li:fs_salesProfile:(ACwAALEAD77,NAME_SEARCH,def)": { "fullName": "Sam Lead", "currentPositions": [{ "title": "Plant Manager", "companyName": "Demo Works" }] }
+      },
+      "messages": [
+        { "id": "m1", "body": "Hello Sam, quick intro.", "deliveredAt": 1763223600000, "author": "urn:li:fs_salesProfile:(ACwAAVIEWER,NAME_SEARCH,abc)" },
+        { "id": "m2", "body": "Not interested right now, maybe next quarter.", "deliveredAt": 1763237000000, "author": "urn:li:fs_salesProfile:(ACwAALEAD77,NAME_SEARCH,def)" }
+      ]
+    }
+  ]
+}

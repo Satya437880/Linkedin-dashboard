@@ -1,0 +1,32 @@
+{
+  "data": {
+    "messengerConversationsBySyncToken": {
+      "elements": [
+        {
+          "entityUrn": "urn:li:msg_conversation:(urn:li:fsd_profile:ACoAAME001,2-THREAD111==)",
+          "unreadCount": 1,
+          "conversationParticipants": [
+            { "hostIdentityUrn": "urn:li:fsd_profile:ACoAAME001", "participantType": { "member": { "firstName": { "text": "Me" }, "lastName": { "text": "User" }, "headline": { "text": "Sourcing at Maple MPSS" } } } },
+            { "hostIdentityUrn": "urn:li:fsd_profile:ACoAAPRO002", "participantType": { "member": { "firstName": { "text": "Jane" }, "lastName": { "text": "Roe" }, "headline": { "text": "Procurement Manager at Sample Co" }, "profilePicture": { "rootUrl": "https://media.example.com/", "artifacts": [{ "fileIdentifyingUrlPathSegment": "small.jpg" }, { "fileIdentifyingUrlPathSegment": "large.jpg" }] } } } }
+          ],
+          "messages": {
+            "elements": [
+              {
+                "entityUrn": "urn:li:msg_message:(urn:li:fsd_profile:ACoAAME001,2-MSG1==)",
+                "body": { "text": "Hi Jane, we help OEMs source CNC machining partners." },
+                "deliveredAt": 1763223600000,
+                "sender": { "hostIdentityUrn": "urn:li:fsd_profile:ACoAAME001", "participantType": { "member": { "firstName": { "text": "Me" }, "lastName": { "text": "User" } } } }
+              },
+              {
+                "entityUrn": "urn:li:msg_message:(urn:li:fsd_profile:ACoAAME001,2-MSG2==)",
+                "body": { "text": "Can you send a quotation for 500 brackets?" },
+                "deliveredAt": 1763238000000,
+                "sender": { "hostIdentityUrn": "urn:li:fsd_profile:ACoAAPRO002", "participantType": { "member": { "firstName": { "text": "Jane" }, "lastName": { "text": "Roe" }, "headline": { "text": "Procurement Manager at Sample Co" } } } }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

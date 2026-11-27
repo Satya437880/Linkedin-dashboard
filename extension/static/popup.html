@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Maple MPSS Capture</title>
+<style>
+  body{font:14px system-ui,sans-serif;color:#333;margin:0;width:300px;padding:14px}
+  h1{font-size:15px;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  h1 img{width:24px;height:24px}
+  dl{margin:0;display:grid;grid-template-columns:1fr auto;gap:6px 12px}
+  dt{color:#666} dd{margin:0;font-weight:600}
+  .done{color:#1a7f37} .wait{color:#b45309}
+  p{margin:10px 0 0;color:#666;font-size:12px}
+  .err{color:#b42318}
+  button,a{font:inherit;margin-top:10px;margin-right:8px}
+  .switch{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#e6f4ea;margin-bottom:12px}
+  .switch.off{background:#f3e4e1}
+  .dot{width:10px;height:10px;border-radius:50%;background:#1a7f37;flex:none}
+  .switch.off .dot{background:#6B2737}
+  .swtext{display:flex;flex-direction:column;flex:1;min-width:0}
+  .swtext span{color:#555;font-size:12px}
+  .checkbtn{margin:10px 0 0;padding:7px 12px;border-radius:8px;border:1px solid #6B2737;background:#fff;color:#6B2737;font-weight:600;cursor:pointer;width:100%}
+  .health{list-style:none;margin:8px 0 0;padding:0;font-size:12px}
+  .health li{display:flex;gap:6px;padding:5px 0;border-top:1px solid #eee}
+  .health .mk{flex:none;font-weight:700}
+  .health .ok .mk{color:#1a7f37}
+  .health .bad .mk{color:#b42318}
+  .health .fix{display:block;color:#555}
+  #toggle{margin:0;padding:6px 12px;border-radius:8px;border:1px solid #6B2737;background:#6B2737;color:#fff;font-weight:600;cursor:pointer}
+  .switch.off #toggle{background:#fff;color:#6B2737}
+</style></head>
+<body>
+  <h1><img src="icon.png" alt="">Maple MPSS Capture</h1>
+  <div id="switch" class="switch">
+    <span id="dot" class="dot" aria-hidden="true"></span>
+    <div class="swtext"><strong id="state">Capture active</strong><span id="statehint">Reading LinkedIn replies</span></div>
+    <button id="toggle" type="button" role="switch" aria-checked="true" aria-label="Capture">Pause</button>
+  </div>
+  <dl>
+    <dt>New messages read</dt><dd id="read">0</dd>
+    <dt>Sent to app</dt><dd id="sent">-</dd>
+    <dt>Queue</dt><dd id="queue">0 waiting</dd>
+  </dl>
+  <h2 style="font-size:13px;margin:14px 0 6px">Diagnostics</h2>
+  <dl>
+    <dt>LinkedIn pages opened</dt><dd id="d-pages">0</dd>
+    <dt>API responses seen</dt><dd id="d-seen">0</dd>
+    <dt>Recognised as messages</dt><dd id="d-rec">0</dd>
+    <dt>Page-text reads (found)</dt><dd id="d-dom">0 (0)</dd>
+  </dl>
+  <button id="check" type="button" class="checkbtn">Check connection</button>
+  <ul id="health" class="health" aria-live="polite"></ul>
+  <p id="posted"></p>
+  <p id="error" class="err" role="alert"></p>
+  <button id="retry" type="button">Send now</button><button id="dl" type="button">Download diagnostic</button><button id="snap" type="button">Download page structure</button><a href="options.html" target="_blank">Options</a>
+  <script src="popup.js"></script>
+</body></html>

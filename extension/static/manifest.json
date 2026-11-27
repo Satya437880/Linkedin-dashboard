@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Maple MPSS LinkedIn Capture",
+  "version": "0.1.0",
+  "description": "Reads LinkedIn replies you have already loaded and sends them to your local Maple MPSS dashboard. Never sends, clicks or types.",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["https://www.linkedin.com/*", "http://localhost:3000/*", "http://127.0.0.1:3000/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "Maple MPSS Capture", "default_icon": "icon.png" },
+  "options_page": "options.html",
+  "icons": { "128": "icon.png" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.linkedin.com/*"],
+      "js": ["injected.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}
